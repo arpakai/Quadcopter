@@ -11,32 +11,37 @@
 #include "EKF.h"
 
 // Constants
-#define RAD2DEG 57.29577
-#define KALMAN_UNCERTAINTY_VAL 0.000256
+constexpr double RAD2DEG = 57.29577;
+constexpr double KALMAN_UNCERTAINTY_VAL = 0.000256;
+constexpr double THRESHOLD = 1e-6;
 
 // Defines
-#define WHO_AM_I_6050_ANS 0x68
-#define WHO_AM_I_9250_ANS 0x71
-#define WHO_AM_I 0x75
-#define AD0_LOW 0x68
-#define AD0_HIGH 0x69
+#define WHO_AM_I_6050_ANS   0x68
+#define WHO_AM_I_9250_ANS   0x71
+#define WHO_AM_I            0x75
+#define AD0_LOW             0x68
+#define AD0_HIGH            0x69
 
-#define XG_OFFSET_H      0x13  // User-defined trim values for gyroscope
-#define XG_OFFSET_L      0x14
-#define YG_OFFSET_H      0x15
-#define YG_OFFSET_L      0x16
-#define ZG_OFFSET_H      0x17
-#define ZG_OFFSET_L      0x18
-#define SMPLRT_DIV       0x19
-#define MPU_CONFIG       0x1A
-#define GYRO_CONFIG      0x1B
-#define ACCEL_CONFIG     0x1C
-#define ACCEL_CONFIG2    0x1D
-#define LP_ACCEL_ODR     0x1E
-#define WOM_THR          0x1F
-#define PWR_MGMT_1       0x6B
-#define ACCEL_XOUT_H    0x3B
-#define I2C_TIMOUT_MS   100
+#define XG_OFFSET_H         0x13  // User-defined trim values for gyroscope
+#define XG_OFFSET_L         0x14
+#define YG_OFFSET_H         0x15
+#define YG_OFFSET_L         0x16
+#define ZG_OFFSET_H         0x17
+#define ZG_OFFSET_L         0x18
+#define SMPLRT_DIV          0x19
+#define MPU_CONFIG          0x1A
+#define GYRO_CONFIG         0x1B
+#define ACCEL_CONFIG        0x1C
+#define ACCEL_CONFIG2       0x1D
+#define LP_ACCEL_ODR        0x1E
+#define WOM_THR             0x1F
+#define PWR_MGMT_1          0x6B
+#define ACCEL_XOUT_H        0x3B
+#define I2C_TIMOUT_MS       100
+#define INT_PIN_CFG         0x37
+#define INT_ENABLE          0x38
+#define DMP_INT_STATUS      0x39  // Check DMP interrupt
+#define INT_STATUS          0x3A
 
 // Magnetometer Registers
 #define AK8963_ADDRESS 0x0C << 1
@@ -105,6 +110,10 @@ struct complementaryf : public EulerAngles {
     using EulerAngles::EulerAngles; // Inherit constructors
 };
 
+struct quaternionf : public EulerAngles {
+    using EulerAngles::EulerAngles;
+};
+
 // Full scale ranges
 enum gyroscopeFullScaleRange
 {
@@ -168,16 +177,46 @@ class MPUXX50
 {
 private:
     // Functions
-    void writeGyroFullScaleRange(uint8_t gFSR);
-    void writeAccFullScaleRange(uint8_t aFSR);
+    void _set_gyro_scale_range(uint8_t gFSR);
+    void _set_acc_scale_range(uint8_t aFSR);
     kalmanf _calc_kalman_filter(ProcessedData &process_data);
     madgwickf _calc_madgwick_filter(ProcessedData &process_data);
     complementaryf _calc_complementary_filter(ProcessedData &process_data);
+    quaternionf _calc_quaternion_filter(ProcessedData &process_data);
+    void _quaternion_update(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz);
+
+    double _clamp_value(double value, double min_val, double max_val);
+    ProcessedData _convert_accel_values(RawData &raw_data);
+    void _calculate_angles(ProcessedData &processed_data);
+    double _signed_sqrt(double value);
+
+    void _start_sensor();
+    void _configure_gyro_thermo();
+    void _set_gyro_full_scale_range();
+    void _set_acc_full_scale_range();
+    void _set_acc_sample_rate_configuration();
+    void _configure_interrupts();
 
     void kalman_1d(double kalman_state, double kalman_uncertainty, double kalman_input, double kalman_measurement);
     void _init_mag();
 
-    // Variables
+    //  Quaternion
+    float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
+    float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+    //float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
+    //float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
+    float beta = 0.6045998;
+    float zeta = 0.0;
+    
+    double q[4];
+    double deltat = 0.0f, sum = 0.0f;        // integration interval for both filter schemes
+    uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
+    uint32_t Now = 0;        // used to calculate integration interval
+    double lin_ax, lin_ay, lin_az;             // linear acceleration (acceleration with gravity component subtracted)
+    double a12, a22, a31, a32, a33;            // rotation matrix coefficients for Euler angles and gravity components
+    //  Quaternion
+
+    //Variables
     float aScaleFactor, gScaleFactor;
     uint8_t _accel_fchoice, _gyro_fchoice;
     I2C_HandleTypeDef *_pI2Cx;
@@ -197,9 +236,9 @@ private:
 
     // Structs
     GyroCal _gyro_cal;
-    Mag _magnetometer;
-    RawData _raw_data;
-    ProcessedData _processed_data;
+    Mag             _mag_data;
+    RawData         _raw_data;
+    ProcessedData   _processed_data;
     Attitude _attitude;
     kalmanf _kalman;
 
@@ -211,7 +250,7 @@ private:
     uint8_t buf[14];
 
     QuaternionFilter quatFilter;
-    float q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
+    float quat[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
     float magnetic_declination = -7.51;    // Japan, 24th June
     float linAcc[3]{0};
 
@@ -225,8 +264,8 @@ public:
     // Functions
     uint8_t begin();
     void _calibrate_gyro(uint16_t numCalPoints);
-    RawData readRawData();
-    ProcessedData processData();
+    RawData _read_raw_data();
+    ProcessedData _process_data();
 
     template<typename T> T _get_calculated_attitude();
     

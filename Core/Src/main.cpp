@@ -157,7 +157,7 @@ int main(void)
       //  madgwick = imu._get_calculated_attitude<madgwickf>();
       // sprintf((char *)serialBuf, "ROT   %.1f,%.1f,%.1f\r\nMAG:  %.1f,%.1f,%.1f\r\n", attitude.r, attitude.p, attitude.y, attitude.mx, attitude.my, attitude.mz);
       // sprintf((char *)serialBuf, "\r\nWOF  R:%.2lf, P:%.2lf, Y:%.2lf\r\nACC  X:.%.2lf, Y:.%.2lf, Z:.%.2lf\r\nWF %.2lf, %.2lf", attitude.roll, attitude.pitch, attitude.yaw,
-      //                             imu.processData().ax, imu.processData().ay, imu.processData().az, //ACC
+      //                             imu._process_data().ax, imu._process_data().ay, imu._process_data().az, //ACC
       //                             kalman.roll, kalman.pitch); //WF
       sprintf((char *)serialBuf, "\r\nROT  R:.%.2lf, p:.%.2lf, Y:%.2lf",
                                   madgwick.roll, madgwick.pitch, madgwick.yaw);
@@ -263,9 +263,9 @@ static void MX_TIM14_Init(void)
 
   /* USER CODE END TIM14_Init 1 */
   htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 8400 - 1;
+  htim14.Init.Prescaler = 8400 - 1;               //84 000 000 / 8400 = 10000 Hz
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 200 - 1;
+  htim14.Init.Period = 250 - 1;                   //10 000 / 250 = 40 Hz
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
