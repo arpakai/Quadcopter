@@ -1083,7 +1083,8 @@ private:
         buf[0] = subAddress;
         buf[1] = data;
 
-        HAL_StatusTypeDef status = HAL_I2C_Master_Transmit(_hi2c1, address, buf, 2, HAL_MAX_DELAY);
+        //HAL_StatusTypeDef status = HAL_I2C_Master_Transmit(_hi2c1, address, buf, 2, HAL_MAX_DELAY);
+        auto status = HAL_I2C_Mem_Write(_hi2c1, address, subAddress, 1, &data, 1, 100);
         if (status != HAL_OK)
         {
             i2c_err_ = status; // Store the error status

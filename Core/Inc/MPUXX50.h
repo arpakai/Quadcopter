@@ -9,63 +9,14 @@
 
 #include "QuaternionFilter.h"
 #include "EKF.h"
+#include "MPU9250Regs.h"
 
 // Constants
+constexpr double PI = 3.14159;
+constexpr double DEG2RAD = 0.01745;
 constexpr double RAD2DEG = 57.29577;
 constexpr double KALMAN_UNCERTAINTY_VAL = 0.000256;
 constexpr double THRESHOLD = 1e-6;
-
-// Defines
-#define WHO_AM_I_6050_ANS   0x68
-#define WHO_AM_I_9250_ANS   0x71
-#define WHO_AM_I            0x75
-#define AD0_LOW             0x68
-#define AD0_HIGH            0x69
-
-#define XG_OFFSET_H         0x13  // User-defined trim values for gyroscope
-#define XG_OFFSET_L         0x14
-#define YG_OFFSET_H         0x15
-#define YG_OFFSET_L         0x16
-#define ZG_OFFSET_H         0x17
-#define ZG_OFFSET_L         0x18
-#define SMPLRT_DIV          0x19
-#define MPU_CONFIG          0x1A
-#define GYRO_CONFIG         0x1B
-#define ACCEL_CONFIG        0x1C
-#define ACCEL_CONFIG2       0x1D
-#define LP_ACCEL_ODR        0x1E
-#define WOM_THR             0x1F
-#define PWR_MGMT_1          0x6B
-#define ACCEL_XOUT_H        0x3B
-#define I2C_TIMOUT_MS       100
-#define INT_PIN_CFG         0x37
-#define INT_ENABLE          0x38
-#define DMP_INT_STATUS      0x39  // Check DMP interrupt
-#define INT_STATUS          0x3A
-
-// Magnetometer Registers
-#define AK8963_ADDRESS 0x0C << 1
-#define AK8963_WHO_AM_I 0x00 // should return 0x48
-#define AK8963_INFO 0x01
-#define AK8963_ST1 0x02    // data ready status bit 0
-#define AK8963_XOUT_L 0x03 // data
-#define AK8963_XOUT_H 0x04
-#define AK8963_YOUT_L 0x05
-#define AK8963_YOUT_H 0x06
-#define AK8963_ZOUT_L 0x07
-#define AK8963_ZOUT_H 0x08
-#define AK8963_ST2 0x09    // Data overflow bit 3 and data read error status bit 2
-#define AK8963_CNTL 0x0A   // Power down (0000), single-measurement (0001), self-test (1000) and Fuse ROM (1111) modes on bits 3:0
-#define AK8963_ASTC 0x0C   // Self test control
-#define AK8963_I2CDIS 0x0F // I2C disable
-#define AK8963_ASAX 0x10   // Fuse ROM x-axis sensitivity adjustment value
-#define AK8963_ASAY 0x11   // Fuse ROM y-axis sensitivity adjustment value
-#define AK8963_ASAZ 0x12   // Fuse ROM z-axis sensitivity adjustment value
-
-#define INT_PIN_CFG 0x37
-
-#define DATA_READY_MASK 0x01
-#define MAGIC_OVERFLOW_MASK 0x8
 
 // Structs
 struct RawData
@@ -177,13 +128,17 @@ class MPUXX50
 {
 private:
     // Functions
+    void _tune_acc_gyro_impl();
+    void _set_acc_gyro_for_calibration();
+    void _collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias);
+
     void _set_gyro_scale_range(uint8_t gFSR);
     void _set_acc_scale_range(uint8_t aFSR);
     kalmanf _calc_kalman_filter(ProcessedData &process_data);
     madgwickf _calc_madgwick_filter(ProcessedData &process_data);
     complementaryf _calc_complementary_filter(ProcessedData &process_data);
     quaternionf _calc_quaternion_filter(ProcessedData &process_data);
-    void _quaternion_update(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz);
+    void _quaternion_update(ProcessedData &processed_data);
 
     double _clamp_value(double value, double min_val, double max_val);
     ProcessedData _convert_accel_values(RawData &raw_data);
@@ -199,6 +154,9 @@ private:
 
     void kalman_1d(double kalman_state, double kalman_uncertainty, double kalman_input, double kalman_measurement);
     void _init_mag();
+
+    double acc_bias[3]{0.0};    // acc calibration value in ACCEL_FS_SEL: 2g 
+    double gyro_bias[3]{0.0};   // gyro calibration value in GYRO_FS_SEL: 250dps
 
     //  Quaternion
     float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)

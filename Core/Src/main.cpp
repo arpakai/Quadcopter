@@ -55,6 +55,7 @@ Attitude attitude{0};
 kalmanf kalman{0};
 complementaryf comp{0};
 madgwickf madgwick{0};
+quaternionf quat{0};
 bool timFlag = false;
 /* USER CODE END PV */
 
@@ -151,16 +152,12 @@ int main(void)
 
     if (timFlag)
     {
-      // kalman = imu._get_calculated_attitude<kalmanf>();
-      // attitude = imu._get_calculated_attitude<Attitude>();
-      // comp = imu._get_calculated_attitude<complementaryf>();
-      //  madgwick = imu._get_calculated_attitude<madgwickf>();
-      // sprintf((char *)serialBuf, "ROT   %.1f,%.1f,%.1f\r\nMAG:  %.1f,%.1f,%.1f\r\n", attitude.r, attitude.p, attitude.y, attitude.mx, attitude.my, attitude.mz);
-      // sprintf((char *)serialBuf, "\r\nWOF  R:%.2lf, P:%.2lf, Y:%.2lf\r\nACC  X:.%.2lf, Y:.%.2lf, Z:.%.2lf\r\nWF %.2lf, %.2lf", attitude.roll, attitude.pitch, attitude.yaw,
-      //                             imu._process_data().ax, imu._process_data().ay, imu._process_data().az, //ACC
-      //                             kalman.roll, kalman.pitch); //WF
-      sprintf((char *)serialBuf, "\r\nROT  R:.%.2lf, p:.%.2lf, Y:%.2lf",
-                                  madgwick.roll, madgwick.pitch, madgwick.yaw);
+      processedData = imu._process_data();
+      quat = imu._get_calculated_attitude<quaternionf>();
+      sprintf((char *)serialBuf, /*"\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf\n\r\*/"nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
+                                  /*quat.roll, quat.pitch, quat.yaw,*/
+                                  processedData.gx, processedData.gy, processedData.gz
+                                  );
       HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
 
       HAL_GPIO_TogglePin(blueLED_GPIO_Port, blueLED_Pin);

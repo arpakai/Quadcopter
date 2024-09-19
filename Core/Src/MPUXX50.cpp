@@ -5,7 +5,7 @@
 /// @brief MPUXX50 I2C constructor
 /// @param pI2Cx Pointer to I2C structure config
 MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx = nullptr) : 
-                                                                        q{1.0f, 0.0f, 0.0f, 0.0f},
+                                                                        q{1.0, 0.0f, 0.0f, 0.0f},
                                                                         aScaleFactor{0}, gScaleFactor{0}, 
                                                                         _accel_fchoice{0x01}, _gyro_fchoice{0x03},
                                                                         _kalman_angle_roll{0}, _kalman_uncertainty_angle_roll{2 * 2},
@@ -246,28 +246,28 @@ madgwickf MPUXX50::_get_calculated_attitude<madgwickf>()
 {
     madgwickf ret_val;
 
-    quatFilter.update(-_processed_data.ax, _processed_data.ay, _processed_data.az,
-                      (_processed_data.gx * DEG_TO_RAD), (-_processed_data.gy * DEG_TO_RAD), (-_processed_data.gz * DEG_TO_RAD),
+    quatFilter.update((-1 * _processed_data.ax), _processed_data.ay, _processed_data.az,
+                      (_processed_data.gx * DEG2RAD), (-_processed_data.gy * DEG2RAD), (-_processed_data.gz * DEG2RAD),
                       _processed_data.mx, -_processed_data.my, _processed_data.mz, quat);
 
     /*QuaternionFilter*/
-    float a12, a22, a31, a32, a33; // rotation matrix coefficients for Euler angles and gravity components
-    a12 = 2.0f * (quat[1] * quat[2] + quat[0] * quat[3]);
+    double a12, a22, a31, a32, a33; // rotation matrix coefficients for Euler angles and gravity components
+    a12 = 2.0 * (quat[1] * quat[2] + quat[0] * quat[3]);
     a22 = quat[0] * quat[0] + quat[1] * quat[1] - quat[2] * quat[2] - quat[3] * quat[3];
-    a31 = 2.0f * (quat[0] * quat[1] + quat[2] * quat[3]);
-    a32 = 2.0f * (quat[1] * quat[3] - quat[0] * quat[2]);
+    a31 = 2.0 * (quat[0] * quat[1] + quat[2] * quat[3]);
+    a32 = 2.0 * (quat[1] * quat[3] - quat[0] * quat[2]);
     a33 = quat[0] * quat[0] - quat[1] * quat[1] - quat[2] * quat[2] + quat[3] * quat[3];
-    ret_val.roll = atan2f(a31, a33);
-    ret_val.yaw = -asinf(a32);
-    ret_val.pitch = atan2f(a12, a22);
+    ret_val.roll = atan2f(a31, a33); 
+    ret_val.pitch = -asinf(a32);
+    ret_val.yaw = atan2f(a12, a22);
     ret_val.roll *= 180.0f / PI;
-    ret_val.yaw *= 180.0f / PI;
     ret_val.pitch *= 180.0f / PI;
-    ret_val.pitch += magnetic_declination;
-    if (ret_val.pitch >= +180.f)
-        ret_val.pitch -= 360.f;
-    else if (ret_val.pitch < -180.f)
-        ret_val.pitch += 360.f;
+    ret_val.yaw *= 180.0f / PI;
+    ret_val.yaw += magnetic_declination;
+    if (ret_val.yaw >= +180.f)
+        ret_val.yaw -= 360.f;
+    else if (ret_val.yaw < -180.f)
+        ret_val.yaw += 360.f;
 
     linAcc[0] = _processed_data.ax + a31;
     linAcc[1] = _processed_data.ay + a32;
@@ -283,12 +283,48 @@ complementaryf MPUXX50::_get_calculated_attitude<complementaryf>()
     complementaryf ret_val;
 
     /*Complementary filter*/
-    double accelPitch = atan2(_processed_data.ay, _processed_data.az) * RAD2DEG;
-    double accelRoll = atan2(_processed_data.ax, _processed_data.az) * RAD2DEG;
+    // double accelPitch = atan2(_processed_data.ay, _processed_data.az) * RAD2DEG;
+    // double accelRoll = atan2(_processed_data.ax, _processed_data.az) * RAD2DEG;
 
-    ret_val.roll = _tau * (ret_val.roll - _processed_data.gy * _dt) + (1 - _tau) * accelRoll;
-    ret_val.pitch = _tau * (ret_val.pitch - _processed_data.gx * _dt) + (1 - _tau) * accelPitch;
+    ret_val.roll = _tau * (ret_val.roll - _processed_data.gy * _dt) + (1 - _tau) * _angle_roll;
+    ret_val.pitch = _tau * (ret_val.pitch - _processed_data.gx * _dt) + (1 - _tau) * _angle_pitch;
     ret_val.yaw += (_processed_data.gz * _dt);
+
+    return ret_val;
+}
+
+template <>
+quaternionf MPUXX50::_get_calculated_attitude<quaternionf>()
+{
+    quaternionf ret_val;
+
+    Now = HAL_GetTick();
+	deltat = ((Now - lastUpdate)/1000.0); // set integration time by time elapsed since last filter update
+	lastUpdate = Now;
+	sum += deltat; // sum for averaging filter update rate
+
+    _quaternion_update(_processed_data);
+
+	// Convert quaternions to Euler angles
+	a12 =   2.0f * (q[1] * q[2] + q[0] * q[3]);
+	a22 =   q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3];
+	a31 =   2.0f * (q[0] * q[1] + q[2] * q[3]);
+	a32 =   2.0f * (q[1] * q[3] - q[0] * q[2]);
+	a33 =   q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3];
+
+	ret_val.pitch = -asinf(a32);
+	ret_val.roll  = atan2f(a31, a33);
+	ret_val.yaw   = atan2f(a12, a22);
+	ret_val.pitch *= 180.0 / PI;
+	ret_val.yaw   *= 180.0 / PI;
+	ret_val.yaw   += 5.53; // Declination
+
+	if(ret_val.yaw < 0) 
+        ret_val.yaw   += 360.0; // Ensure yaw stays between 0 and 360
+	ret_val.roll  *= 180.0 / PI;
+	lin_ax = ax + a31;
+	lin_ay = ay + a32;
+	lin_az = az - a33;
 
     return ret_val;
 }
@@ -319,9 +355,9 @@ void MPUXX50::_calibrate_gyro(uint16_t numCalPoints)
     }
 
     // Average the saved data points to find the gyroscope offset
-    _gyro_cal.x = (float)x / (float)numCalPoints;
-    _gyro_cal.y = (float)y / (float)numCalPoints;
-    _gyro_cal.z = (float)z / (float)numCalPoints;
+    _gyro_cal.x = (double)x / (double)numCalPoints;
+    _gyro_cal.y = (double)y / (double)numCalPoints;
+    _gyro_cal.z = (double)z / (double)numCalPoints;
 }
 
 /// @brief Set the accelerometer full scale range.
@@ -427,9 +463,9 @@ void MPUXX50::_init_mag()
     // Read the x-, y-, and z-axis calibration values
     uint8_t rawMagCalData[3];
     HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_ASAX, 1, &rawMagCalData[0], 3, I2C_TIMOUT_MS);
-    float calMagX = (float)(rawMagCalData[0] - 128) / 256. + 1.; // Return x-axis sensitivity adjustment values, etc.
-    float calMagY = (float)(rawMagCalData[1] - 128) / 256. + 1.;
-    float calMagZ = (float)(rawMagCalData[2] - 128) / 256. + 1.;
+    double calMagX = (double)(rawMagCalData[0] - 128) / 256. + 1.; // Return x-axis sensitivity adjustment values, etc.
+    double calMagY = (double)(rawMagCalData[1] - 128) / 256. + 1.;
+    double calMagZ = (double)(rawMagCalData[2] - 128) / 256. + 1.;
 
     snprintf((char *)serialBuffer, sizeof(serialBuffer), "Mag call off X: %f\r\nMag call off Y: %f\r\nMag call off Z: %f\r\n", calMagX, calMagY, calMagZ);
     HAL_UART_Transmit(_pUARTx, serialBuffer, sizeof(serialBuffer), 100);
@@ -478,82 +514,85 @@ void MPUXX50::kalman_1d(double kalman_state, double kalman_uncertainty, double k
     _kalman_1d_output[1] = kalman_uncertainty;
 }
 
-void MPUXX50::_quaternion_update(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz){
-    float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
-    float norm;
-    float hx, hy, _2bx, _2bz;
-    float s1, s2, s3, s4;
-    float qDot1, qDot2, qDot3, qDot4;
+void MPUXX50::_quaternion_update(ProcessedData &processed_data){
+    processed_data.gx *= DEG2RAD;
+    processed_data.gy *= DEG2RAD;
+    processed_data.gz *= DEG2RAD;
+    double q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
+    double norm;
+    double hx, hy, _2bx, _2bz;
+    double s1, s2, s3, s4;
+    double qDot1, qDot2, qDot3, qDot4;
 
     // Auxiliary variables to avoid repeated arithmetic
-    float _2q1mx;
-    float _2q1my;
-    float _2q1mz;
-    float _2q2mx;
-    float _4bx;
-    float _4bz;
-    float _2q1 = 2.0f * q1;
-    float _2q2 = 2.0f * q2;
-    float _2q3 = 2.0f * q3;
-    float _2q4 = 2.0f * q4;
-    float _2q1q3 = 2.0f * q1 * q3;
-    float _2q3q4 = 2.0f * q3 * q4;
-    float q1q1 = q1 * q1;
-    float q1q2 = q1 * q2;
-    float q1q3 = q1 * q3;
-    float q1q4 = q1 * q4;
-    float q2q2 = q2 * q2;
-    float q2q3 = q2 * q3;
-    float q2q4 = q2 * q4;
-    float q3q3 = q3 * q3;
-    float q3q4 = q3 * q4;
-    float q4q4 = q4 * q4;
+    double _2q1mx;
+    double _2q1my;
+    double _2q1mz;
+    double _2q2mx;
+    double _4bx;
+    double _4bz;
+    double _2q1 = 2.0 * q1;
+    double _2q2 = 2.0 * q2;
+    double _2q3 = 2.0 * q3;
+    double _2q4 = 2.0 * q4;
+    double _2q1q3 = 2.0 * q1 * q3;
+    double _2q3q4 = 2.0 * q3 * q4;
+    double q1q1 = q1 * q1;
+    double q1q2 = q1 * q2;
+    double q1q3 = q1 * q3;
+    double q1q4 = q1 * q4;
+    double q2q2 = q2 * q2;
+    double q2q3 = q2 * q3;
+    double q2q4 = q2 * q4;
+    double q3q3 = q3 * q3;
+    double q3q4 = q3 * q4;
+    double q4q4 = q4 * q4;
 
     // Normalise accelerometer measurement
-    norm = sqrtf(ax * ax + ay * ay + az * az);
+    norm = sqrtf(processed_data.ax * processed_data.ax + processed_data.ay * processed_data.ay + processed_data.az * processed_data.az);
     if (norm == 0.0f) return; // handle NaN
-    norm = 1.0f/norm;
-    ax *= norm;
-    ay *= norm;
-    az *= norm;
+    norm = 1.0/norm;
+    processed_data.ax *= norm;
+    processed_data.ay *= norm;
+    processed_data.az *= norm;
 
     // Normalise magnetometer measurement
-    norm = sqrtf(mx * mx + my * my + mz * mz);
+    norm = sqrtf(processed_data.mx * processed_data.mx + processed_data.my * processed_data.my + processed_data.mz * processed_data.mz);
     if (norm == 0.0f) return; // handle NaN
-    norm = 1.0f/norm;
-    mx *= norm;
-    my *= norm;
-    mz *= norm;
+    norm = 1.0/norm;
+    processed_data.mx *= norm;
+    processed_data.my *= norm;
+    processed_data.mz *= norm;
 
     // Reference direction of Earth's magnetic field
-    _2q1mx = 2.0f * q1 * mx;
-    _2q1my = 2.0f * q1 * my;
-    _2q1mz = 2.0f * q1 * mz;
-    _2q2mx = 2.0f * q2 * mx;
-    hx = mx * q1q1 - _2q1my * q4 + _2q1mz * q3 + mx * q2q2 + _2q2 * my * q3 + _2q2 * mz * q4 - mx * q3q3 - mx * q4q4;
-    hy = _2q1mx * q4 + my * q1q1 - _2q1mz * q2 + _2q2mx * q3 - my * q2q2 + my * q3q3 + _2q3 * mz * q4 - my * q4q4;
+    _2q1mx = 2.0 * q1 * processed_data.mx;
+    _2q1my = 2.0 * q1 * processed_data.my;
+    _2q1mz = 2.0 * q1 * processed_data.mz;
+    _2q2mx = 2.0 * q2 * processed_data.mx;
+    hx = processed_data.mx * q1q1 - _2q1my * q4 + _2q1mz * q3 + processed_data.mx * q2q2 + _2q2 * processed_data.my * q3 + _2q2 * processed_data.mz * q4 - processed_data.mx * q3q3 - processed_data.mx * q4q4;
+    hy = _2q1mx * q4 + processed_data.my * q1q1 - _2q1mz * q2 + _2q2mx * q3 - processed_data.my * q2q2 + processed_data.my * q3q3 + _2q3 * processed_data.mz * q4 - processed_data.my * q4q4;
     _2bx = sqrtf(hx * hx + hy * hy);
-    _2bz = -_2q1mx * q3 + _2q1my * q2 + mz * q1q1 + _2q2mx * q4 - mz * q2q2 + _2q3 * my * q4 - mz * q3q3 + mz * q4q4;
-    _4bx = 2.0f * _2bx;
-    _4bz = 2.0f * _2bz;
+    _2bz = -_2q1mx * q3 + _2q1my * q2 + processed_data.mz * q1q1 + _2q2mx * q4 - processed_data.mz * q2q2 + _2q3 * processed_data.my * q4 - processed_data.mz * q3q3 + processed_data.mz * q4q4;
+    _4bx = 2.0 * _2bx;
+    _4bz = 2.0 * _2bz;
 
     // Gradient decent algorithm corrective step
-    s1 = -_2q3 * (2.0f * q2q4 - _2q1q3 - ax) + _2q2 * (2.0f * q1q2 + _2q3q4 - ay) - _2bz * q3 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q4 + _2bz * q2) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q3 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
-    s2 = _2q4 * (2.0f * q2q4 - _2q1q3 - ax) + _2q1 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q2 * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + _2bz * q4 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q3 + _2bz * q1) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q4 - _4bz * q2) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
-    s3 = -_2q1 * (2.0f * q2q4 - _2q1q3 - ax) + _2q4 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q3 * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + (-_4bx * q3 - _2bz * q1) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q2 + _2bz * q4) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q1 - _4bz * q3) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
-    s4 = _2q2 * (2.0f * q2q4 - _2q1q3 - ax) + _2q3 * (2.0f * q1q2 + _2q3q4 - ay) + (-_4bx * q4 + _2bz * q2) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q1 + _2bz * q3) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q2 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+    s1 = -_2q3 * (2.0 * q2q4 - _2q1q3 - processed_data.ax) + _2q2 * (2.0 * q1q2 + _2q3q4 - processed_data.ay) - _2bz * q3 * (_2bx * (0.5 - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - processed_data.mx) + (-_2bx * q4 + _2bz * q2) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - processed_data.my) + _2bx * q3 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5 - q2q2 - q3q3) - processed_data.mz);
+    s2 = _2q4 * (2.0 * q2q4 - _2q1q3 - processed_data.ax) + _2q1 * (2.0 * q1q2 + _2q3q4 - processed_data.ay) - 4.0f * q2 * (1.0 - 2.0 * q2q2 - 2.0 * q3q3 - processed_data.az) + _2bz * q4 * (_2bx * (0.5 - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - processed_data.mx) + (_2bx * q3 + _2bz * q1) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - processed_data.my) + (_2bx * q4 - _4bz * q2) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5 - q2q2 - q3q3) - processed_data.mz);
+    s3 = -_2q1 * (2.0 * q2q4 - _2q1q3 - processed_data.ax) + _2q4 * (2.0 * q1q2 + _2q3q4 - processed_data.ay) - 4.0f * q3 * (1.0 - 2.0 * q2q2 - 2.0 * q3q3 - processed_data.az) + (-_4bx * q3 - _2bz * q1) * (_2bx * (0.5 - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - processed_data.mx) + (_2bx * q2 + _2bz * q4) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - processed_data.my) + (_2bx * q1 - _4bz * q3) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5 - q2q2 - q3q3) - processed_data.mz);
+    s4 = _2q2 * (2.0 * q2q4 - _2q1q3 - processed_data.ax) + _2q3 * (2.0 * q1q2 + _2q3q4 - processed_data.ay) + (-_4bx * q4 + _2bz * q2) * (_2bx * (0.5 - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - processed_data.mx) + (-_2bx * q1 + _2bz * q3) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - processed_data.my) + _2bx * q2 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5 - q2q2 - q3q3) - processed_data.mz);
     norm = sqrtf(s1 * s1 + s2 * s2 + s3 * s3 + s4 * s4);    // normalise step magnitude
-    norm = 1.0f/norm;
+    norm = 1.0/norm;
     s1 *= norm;
     s2 *= norm;
     s3 *= norm;
     s4 *= norm;
 
     // Compute rate of change of quaternion
-    qDot1 = 0.5f * (-q2 * gx - q3 * gy - q4 * gz) - beta * s1;
-    qDot2 = 0.5f * (q1 * gx + q3 * gz - q4 * gy) - beta * s2;
-    qDot3 = 0.5f * (q1 * gy - q2 * gz + q4 * gx) - beta * s3;
-    qDot4 = 0.5f * (q1 * gz + q2 * gy - q3 * gx) - beta * s4;
+    qDot1 = 0.5 * (-q2 * processed_data.gx - q3 * processed_data.gy - q4 * processed_data.gz) - beta * s1;
+    qDot2 = 0.5 * (q1 * processed_data.gx + q3 * processed_data.gz - q4 * processed_data.gy) - beta * s2;
+    qDot3 = 0.5 * (q1 * processed_data.gy - q2 * processed_data.gz + q4 * processed_data.gx) - beta * s3;
+    qDot4 = 0.5 * (q1 * processed_data.gz + q2 * processed_data.gy - q3 * processed_data.gx) - beta * s4;
 
     // Integrate to yield quaternion
     q1 += qDot1 * deltat;
@@ -561,7 +600,7 @@ void MPUXX50::_quaternion_update(float ax, float ay, float az, float gx, float g
     q3 += qDot3 * deltat;
     q4 += qDot4 * deltat;
     norm = sqrtf(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);    // normalise quaternion
-    norm = 1.0f/norm;
+    norm = 1.0/norm;
     q[0] = q1 * norm;
     q[1] = q2 * norm;
     q[2] = q3 * norm;
@@ -647,4 +686,86 @@ void MPUXX50::_configure_interrupts()
     HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_PIN_CFG, 1, &_write_data, 1, I2C_TIMOUT_MS);
     _write_data = 0x01;
     HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, 1, &_read_data, 1, I2C_TIMOUT_MS);     // Enable data ready (bit 0) interrupt
+}
+
+void MPUXX50::_collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias)
+{
+    // At end of sample accumulation, turn off FIFO sensor read
+    uint8_t data[12];                                   // data array to hold accelerometer and gyro x, y, z, data
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Enable data ready (bit 0) interrupt           // Disable gyro and accelerometer sensors for FIFO
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_COUNTH, 2, &data[0], 1, I2C_TIMOUT_MS); // read FIFO sample count
+    uint16_t fifo_count = ((uint16_t)data[0] << 8) | data[1];
+    uint16_t packet_count = fifo_count / 12; // How many sets of full gyro and accelerometer data for averaging
+    for (uint16_t ii = 0; ii < packet_count; ii++)
+    {
+        int16_t accel_temp[3] = {0, 0, 0}, gyro_temp[3] = {0, 0, 0};
+        HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_R_W, 12, &data[0], 1, I2C_TIMOUT_MS);  // read data for averaging         
+        accel_temp[0] = (int16_t)(((int16_t)data[0] << 8) | data[1]); // Form signed 16-bit integer for each sample in FIFO
+        accel_temp[1] = (int16_t)(((int16_t)data[2] << 8) | data[3]);
+        accel_temp[2] = (int16_t)(((int16_t)data[4] << 8) | data[5]);
+        gyro_temp[0] = (int16_t)(((int16_t)data[6] << 8) | data[7]);
+        gyro_temp[1] = (int16_t)(((int16_t)data[8] << 8) | data[9]);
+        gyro_temp[2] = (int16_t)(((int16_t)data[10] << 8) | data[11]);
+        a_bias[0] += (double)accel_temp[0]; // Sum individual signed 16-bit biases to get accumulated signed 32-bit biases
+        a_bias[1] += (double)accel_temp[1];
+        a_bias[2] += (double)accel_temp[2];
+        g_bias[0] += (double)gyro_temp[0];
+        g_bias[1] += (double)gyro_temp[1];
+        g_bias[2] += (double)gyro_temp[2];
+    }
+    a_bias[0] /= (double)packet_count; // Normalize sums to get average count biases
+    a_bias[1] /= (double)packet_count;
+    a_bias[2] /= (double)packet_count;
+    g_bias[0] /= (double)packet_count;
+    g_bias[1] /= (double)packet_count;
+    g_bias[2] /= (double)packet_count;
+    if (a_bias[2] > 0L)
+    {
+        a_bias[2] -= 16384.0;
+    } // Remove gravity from the z-axis accelerometer bias calculation
+    else
+    {
+        a_bias[2] += 16384.0;
+    }
+}
+
+void MPUXX50::_set_acc_gyro_for_calibration()
+{
+    // reset device
+    _write_data = 0x80; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS); // Write a one to bit 7 reset bit; toggle reset device
+    HAL_Delay(100);
+
+    // get stable time source; Auto select clock source to be PLL gyroscope reference if ready
+    // else use the internal oscillator, bits 2:0 = 001
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS); 
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, 1, &_write_data, 1, I2C_TIMOUT_MS);     
+    HAL_Delay(200);
+    // Configure device for bias calculation
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Disable all interrupts  
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);       // Disable FIFO
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Turn on internal clock source
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, I2C_MST_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);  // Disable I2C master
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Disable FIFO and I2C master modes
+    _write_data = 0x0C; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Reset FIFO and DMP    
+    HAL_Delay(15);
+    // Configure MPU6050 gyro and accelerometer for bias calculation
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, MPU_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Set low-pass filter to 188 Hz 
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, SMPLRT_DIV, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Set sample rate to 1 kHz
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, GYRO_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);   // Set gyro full-scale to 250 degrees per second, maximum sensitivity
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, ACCEL_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);  // Set accelerometer full-scale to 2 g, maximum sensitivity
+    // Configure FIFO to capture accelerometer and gyro data for bias calculation
+    _write_data = 0x40; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Enable FIFO
+    _write_data = 0x78; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);       // Enable gyro and accelerometer sensors for FIFO  (max size 512 bytes in MPU-9250)
+    HAL_Delay(40);      
+}
+
+/// @brief
+// Function which accumulates gyro and accelerometer data after device initialization. It calculates the average
+// of the at-rest readings and then loads the resulting offsets into accelerometer and gyro bias registers.
+// ACCEL_FS_SEL: 2g (maximum sensitivity)
+// GYRO_FS_SEL: 250dps (maximum sensitivity)
+void MPUXX50::_tune_acc_gyro_impl()
+{
+    _set_acc_gyro_for_calibration();
+    _collect_acc_gyro_data_for_calibration(acc_bias, gyro_bias);
 }

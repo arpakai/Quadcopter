@@ -64,7 +64,7 @@ Core/Src/system_stm32f4xx.c \
 CXX_SOURCES = \
 Core/Src/main.cpp \
 Core/Src/QuadcopterManager.cpp \
-Core/Src/MPUXX50.cpp
+Core/Src/MPUXX50.cpp 
 
 # ASM sources
 ASM_SOURCES =  \
