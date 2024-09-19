@@ -139,7 +139,9 @@ int main(void)
   //     snprintf((char*)serialBuf, sizeof(serialBuf), "MPU connection failed. Please check your connection with `connection_check` example.");
   //   }
   // }
-
+  int count = 0;
+  madgwickf madgwick_sum{0};
+  ProcessedData data_sum{0};
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -149,16 +151,37 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
     if (timFlag)
     {
-      processedData = imu._process_data();
-      quat = imu._get_calculated_attitude<quaternionf>();
-      sprintf((char *)serialBuf, /*"\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf\n\r\*/"nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
-                                  /*quat.roll, quat.pitch, quat.yaw,*/
-                                  processedData.gx, processedData.gy, processedData.gz
-                                  );
-      HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
+      //processedData = imu._process_data();
+
+      madgwick = imu._get_calculated_attitude<madgwickf>();
+
+      madgwick_sum.roll += madgwick.roll;
+      madgwick_sum.pitch += madgwick.pitch;
+      madgwick_sum.yaw += madgwick.yaw;
+      // data_sum.ax += processedData.ax;
+      // data_sum.ay += processedData.ay;
+      // data_sum.az += processedData.az;
+      count++;
+      
+      if(10 == count)
+      {
+        madgwick_sum.roll /= 10.0;
+        madgwick_sum.pitch /= 10.0;
+        madgwick_sum.yaw /= 10.0;
+        sprintf((char *)serialBuf, "\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf, Count:%d\n\r",
+                                    madgwick_sum.roll, madgwick_sum.pitch, madgwick_sum.yaw, count
+                                    );
+        // data_sum.ax /= 10.0;
+        // data_sum.ay /= 10.0;
+        // data_sum.az /= 10.0;
+        // sprintf((char *)serialBuf, "\r\nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
+        //                             data_sum.ax, data_sum.ay, data_sum.az
+        //                             );
+        HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
+        count = 0;
+      }
 
       HAL_GPIO_TogglePin(blueLED_GPIO_Port, blueLED_Pin);
       timFlag = false;
@@ -262,7 +285,7 @@ static void MX_TIM14_Init(void)
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 8400 - 1;               //84 000 000 / 8400 = 10000 Hz
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 250 - 1;                   //10 000 / 250 = 40 Hz
+  htim14.Init.Period = 10 - 1;                   //10 000 / 10 = 10 kHz
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
@@ -290,7 +313,7 @@ static void MX_UART4_Init(void)
 
   /* USER CODE END UART4_Init 1 */
   huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
+  huart4.Init.BaudRate = 230400;
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
   huart4.Init.StopBits = UART_STOPBITS_1;
   huart4.Init.Parity = UART_PARITY_NONE;

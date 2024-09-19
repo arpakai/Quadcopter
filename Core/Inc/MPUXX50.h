@@ -208,7 +208,7 @@ private:
     uint8_t buf[14];
 
     QuaternionFilter quatFilter;
-    float quat[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
+    float quat[4] = {1.00, 0.00, 0.00, 0.00}; // vector to hold quaternion
     float magnetic_declination = -7.51;    // Japan, 24th June
     float linAcc[3]{0};
 

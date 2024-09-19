@@ -12,10 +12,10 @@ enum class QuatFilterSel {
 
 class QuaternionFilter {
     // for madgwick
-    float GyroMeasError = 3.14 * (40.0f / 180.0f);     // gyroscope measurement error in rads/s (start at 40 deg/s)
-    float GyroMeasDrift = 3.14 * (0.0f / 180.0f);      // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-    float beta = sqrt(3.0f / 4.0f) * GyroMeasError;  // compute beta
-    float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;  // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
+    float GyroMeasError = 3.14 * (40.00 / 180.00);     // gyroscope measurement error in rads/s (start at 40 deg/s)
+    float GyroMeasDrift = 3.14 * (0.00 / 180.00);      // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+    float beta = sqrt(3.00 / 4.00) * GyroMeasError;  // compute beta
+    float zeta = sqrt(3.00 / 4.00) * GyroMeasDrift;  // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
 
     // for mahony
     float Kp = 30.0;
@@ -76,38 +76,38 @@ public:
         double _2q0mx, _2q0my, _2q0mz, _2q1mx, _2bx, _2bz, _4bx, _4bz, _2q0, _2q1, _2q2, _2q3, _2q0q2, _2q2q3, q0q0, q0q1, q0q2, q0q3, q1q1, q1q2, q1q3, q2q2, q2q3, q3q3;
 
         // Rate of change of quaternion from gyroscope
-        qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
-        qDot2 = 0.5f * (q0 * gx + q2 * gz - q3 * gy);
-        qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
-        qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
+        qDot1 = 0.50 * (-q1 * gx - q2 * gy - q3 * gz);
+        qDot2 = 0.50 * (q0 * gx + q2 * gz - q3 * gy);
+        qDot3 = 0.50 * (q0 * gy - q1 * gz + q3 * gx);
+        qDot4 = 0.50 * (q0 * gz + q1 * gy - q2 * gx);
 
         // Normalise accelerometer measurement
         double a_norm = ax * ax + ay * ay + az * az;
-        if (a_norm == 0.) return;  // handle NaN
-        recipNorm = 1.0 / sqrt(a_norm);
+        if (a_norm == 0.00) return;  // handle NaN
+        recipNorm = 1.00 / sqrt(a_norm);
         ax *= recipNorm;
         ay *= recipNorm;
         az *= recipNorm;
 
         // Normalise magnetometer measurement
         double m_norm = mx * mx + my * my + mz * mz;
-        if (m_norm == 0.) return;  // handle NaN
-        recipNorm = 1.0 / sqrt(m_norm);
+        if (m_norm == 0.00) return;  // handle NaN
+        recipNorm = 1.00 / sqrt(m_norm);
         mx *= recipNorm;
         my *= recipNorm;
         mz *= recipNorm;
 
         // Auxiliary variables to avoid repeated arithmetic
-        _2q0mx = 2.0f * q0 * mx;
-        _2q0my = 2.0f * q0 * my;
-        _2q0mz = 2.0f * q0 * mz;
-        _2q1mx = 2.0f * q1 * mx;
-        _2q0 = 2.0f * q0;
-        _2q1 = 2.0f * q1;
-        _2q2 = 2.0f * q2;
-        _2q3 = 2.0f * q3;
-        _2q0q2 = 2.0f * q0 * q2;
-        _2q2q3 = 2.0f * q2 * q3;
+        _2q0mx = 2.00 * q0 * mx;
+        _2q0my = 2.00 * q0 * my;
+        _2q0mz = 2.00 * q0 * mz;
+        _2q1mx = 2.00 * q1 * mx;
+        _2q0 = 2.00 * q0;
+        _2q1 = 2.00 * q1;
+        _2q2 = 2.00 * q2;
+        _2q3 = 2.00 * q3;
+        _2q0q2 = 2.00 * q0 * q2;
+        _2q2q3 = 2.00 * q2 * q3;
         q0q0 = q0 * q0;
         q0q1 = q0 * q1;
         q0q2 = q0 * q2;
@@ -124,14 +124,14 @@ public:
         hy = _2q0mx * q3 + my * q0q0 - _2q0mz * q1 + _2q1mx * q2 - my * q1q1 + my * q2q2 + _2q2 * mz * q3 - my * q3q3;
         _2bx = sqrt(hx * hx + hy * hy);
         _2bz = -_2q0mx * q2 + _2q0my * q1 + mz * q0q0 + _2q1mx * q3 - mz * q1q1 + _2q2 * my * q3 - mz * q2q2 + mz * q3q3;
-        _4bx = 2.0f * _2bx;
-        _4bz = 2.0f * _2bz;
+        _4bx = 2.00 * _2bx;
+        _4bz = 2.00 * _2bz;
 
         // Gradient decent algorithm corrective step
-        s0 = -_2q2 * (2.0f * q1q3 - _2q0q2 - ax) + _2q1 * (2.0f * q0q1 + _2q2q3 - ay) - _2bz * q2 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q3 + _2bz * q1) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q2 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
-        s1 = _2q3 * (2.0f * q1q3 - _2q0q2 - ax) + _2q0 * (2.0f * q0q1 + _2q2q3 - ay) - 4.0f * q1 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) + _2bz * q3 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q2 + _2bz * q0) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q3 - _4bz * q1) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
-        s2 = -_2q0 * (2.0f * q1q3 - _2q0q2 - ax) + _2q3 * (2.0f * q0q1 + _2q2q3 - ay) - 4.0f * q2 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) + (-_4bx * q2 - _2bz * q0) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q1 + _2bz * q3) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q0 - _4bz * q2) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
-        s3 = _2q1 * (2.0f * q1q3 - _2q0q2 - ax) + _2q2 * (2.0f * q0q1 + _2q2q3 - ay) + (-_4bx * q3 + _2bz * q1) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q0 + _2bz * q2) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q1 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s0 = -_2q2 * (2.00 * q1q3 - _2q0q2 - ax) + _2q1 * (2.00 * q0q1 + _2q2q3 - ay) - _2bz * q2 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q3 + _2bz * q1) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q2 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s1 = _2q3 * (2.00 * q1q3 - _2q0q2 - ax) + _2q0 * (2.00 * q0q1 + _2q2q3 - ay) - 4.00 * q1 * (1 - 2.00 * q1q1 - 2.00 * q2q2 - az) + _2bz * q3 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q2 + _2bz * q0) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q3 - _4bz * q1) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s2 = -_2q0 * (2.00 * q1q3 - _2q0q2 - ax) + _2q3 * (2.00 * q0q1 + _2q2q3 - ay) - 4.00 * q2 * (1 - 2.00 * q1q1 - 2.00 * q2q2 - az) + (-_4bx * q2 - _2bz * q0) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q1 + _2bz * q3) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q0 - _4bz * q2) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s3 = _2q1 * (2.00 * q1q3 - _2q0q2 - ax) + _2q2 * (2.00 * q0q1 + _2q2q3 - ay) + (-_4bx * q3 + _2bz * q1) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q0 + _2bz * q2) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q1 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
         recipNorm = 1.0 / sqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3);  // normalise step magnitude
         s0 *= recipNorm;
         s1 *= recipNorm;
@@ -151,7 +151,7 @@ public:
         q3 += qDot4 * deltaT;
 
         // Normalise quaternion
-        recipNorm = 1.0 / sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+        recipNorm = 1.00 / sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
         q0 *= recipNorm;
         q1 *= recipNorm;
         q2 *= recipNorm;
@@ -203,7 +203,7 @@ public:
             ez = (ax * vy - ay * vx);
 
             // Compute and apply to gyro term the integral feedback, if enabled
-            if (Ki > 0.0f) {
+            if (Ki > 0.00) {
                 ix += Ki * ex * deltaT;  // integral error scaled by Ki
                 iy += Ki * ey * deltaT;
                 iz += Ki * ez * deltaT;
