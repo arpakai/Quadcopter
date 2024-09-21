@@ -104,19 +104,19 @@ ProcessedData MPUXX50::_convert_accel_values(RawData &raw_data)
 {
     ProcessedData ret_val{0};
 
-    ret_val.ax = raw_data.ax / aScaleFactor - 0.01;
+    ret_val.ax = raw_data.ax / aScaleFactor - 0.02;
     if (fabs(ret_val.ax) < THRESHOLD) {
         ret_val.ax = (ret_val.ax < 0) ? -THRESHOLD : THRESHOLD;
     }
     ret_val.ax = _clamp_value(ret_val.ax, -0.99, 0.99);
 
-    ret_val.ay = raw_data.ay / aScaleFactor - 0.01;
+    ret_val.ay = raw_data.ay / aScaleFactor;
     if (fabs(ret_val.ay) < THRESHOLD) {
         ret_val.ay = (ret_val.ay < 0) ? -THRESHOLD : THRESHOLD;
     }
     ret_val.ay = _clamp_value(ret_val.ay, -0.99, 0.99);
 
-    ret_val.az = raw_data.az / aScaleFactor - 0.01;
+    ret_val.az = raw_data.az / aScaleFactor;
     if (fabs(ret_val.az) < THRESHOLD) {
         ret_val.az = (ret_val.az < 0) ? -THRESHOLD : THRESHOLD;
     }
@@ -466,7 +466,7 @@ void MPUXX50::_calibrate_gyro(uint16_t numCalPoints)
     // Average the saved data points to find the gyroscope offset
     _gyro_cal.x = (double)x / (double)numCalPoints;
     _gyro_cal.y = (double)y / (double)numCalPoints;
-    _gyro_cal.z = (double)z / (double)numCalPoints;
+    _gyro_cal.z = (double)z / (double)numCalPoints; 
 }
 
 /// @brief Set the accelerometer full scale range.
