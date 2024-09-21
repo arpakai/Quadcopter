@@ -74,7 +74,7 @@ static void MX_UART4_Init(void);
 /* USER CODE BEGIN 0 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  
+
 }
 /* USER CODE END 0 */
 
@@ -83,7 +83,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   * @retval int
   */
 int main(void)
-{
+ {
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -156,35 +156,35 @@ int main(void)
     /* USER CODE BEGIN 3 */
     if (timFlag)
     {
-      processedData = imu._process_data();
+      // processedData = imu._process_data();
 
-      // madgwick = imu._get_calculated_attitude<madgwickf>();
+      madgwick = imu._get_calculated_attitude<madgwickf>();
 
-      // madgwick_sum.roll += madgwick.roll;
-      // madgwick_sum.pitch += madgwick.pitch;
-      // madgwick_sum.yaw += madgwick.yaw;
-      data_sum.ax = processedData.ax;
-      data_sum.ay = processedData.ay;
-      data_sum.az = processedData.az;
+      madgwick_sum.roll += madgwick.roll;
+      madgwick_sum.pitch += madgwick.pitch;
+      madgwick_sum.yaw += madgwick.yaw;
+      // data_sum.ax = processedData.ax;
+      // data_sum.ay = processedData.ay;
+      // data_sum.az = processedData.az;
       count++;
 
-      // if(10 == count)
-      // {
-        // madgwick_sum.roll /= 10.00;
-        // madgwick_sum.pitch /= 10.00;
-        // madgwick_sum.yaw /= 10.00;
-        // sprintf((char *)serialBuf, "\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf, Count:%d\n\r",
-        //                             madgwick_sum.roll, madgwick_sum.pitch, madgwick_sum.yaw, count
-        //                             );
+      if(10 == count)
+      {
+        madgwick_sum.roll /= 10.00;
+        madgwick_sum.pitch /= 10.00;
+        madgwick_sum.yaw /= 10.00;
+        sprintf((char *)serialBuf, "\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf, Count:%d\n\r",
+                                    madgwick_sum.roll, madgwick_sum.pitch, madgwick_sum.yaw, count
+                                    );
         // data_sum.ax /= 10.00;
         // data_sum.ay /= 10.00;
         // data_sum.az /= 10.00;
-        sprintf((char *)serialBuf, "\r\nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
-                                    data_sum.ax, data_sum.ay, data_sum.az
-                                    );
+        // sprintf((char *)serialBuf, "\r\nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
+        //                             data_sum.ax, data_sum.ay, data_sum.az
+        //                             );
         HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
         count = 0;
-      // }
+      }
 
       HAL_GPIO_TogglePin(blueLED_GPIO_Port, blueLED_Pin);
       timFlag = false;

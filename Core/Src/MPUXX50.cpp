@@ -252,14 +252,16 @@ madgwickf MPUXX50::_get_calculated_attitude<madgwickf>()
 
     /*QuaternionFilter*/
     double a12, a22, a31, a32, a33; // rotation matrix coefficients for Euler angles and gravity components
-    a12 = 2.0 * (quat[1] * quat[2] + quat[0] * quat[3]);
-    a22 = quat[0] * quat[0] + quat[1] * quat[1] - quat[2] * quat[2] - quat[3] * quat[3];
-    a31 = 2.0 * (quat[0] * quat[1] + quat[2] * quat[3]);
-    a32 = 2.0 * (quat[1] * quat[3] - quat[0] * quat[2]);
+
+    a12 = (-2.0 * quat[1] * quat[2]) + (2 * quat[0] * quat[3]);
+    a22 = (quat[0] * quat[0]) - (quat[1] * quat[1]) + (quat[2] * quat[2]) - (quat[3] * quat[3]);
+    a31 = -2.0 * quat[1] * quat[3] + 2.0 * quat[0] * quat[2];
+    a32 = 2.0 * (quat[2] * quat[3] + quat[0] * quat[1]);
     a33 = quat[0] * quat[0] - quat[1] * quat[1] - quat[2] * quat[2] + quat[3] * quat[3];
+
     ret_val.roll = atan2f(a31, a33); //0 roll, 1 pitch, 2yaw
-    ret_val.pitch = -asinf(a32);
-    ret_val.yaw = atan2f(a12, a22);
+    ret_val.pitch = asinf(a32);
+    ret_val.yaw = - atan2f(a12, a22);
     ret_val.roll *= 180.0 / PI;
     ret_val.pitch *= 180.0 / PI;
     ret_val.yaw *= 180.0 / PI;
@@ -466,7 +468,7 @@ void MPUXX50::_calibrate_gyro(uint16_t numCalPoints)
     // Average the saved data points to find the gyroscope offset
     _gyro_cal.x = (double)x / (double)numCalPoints;
     _gyro_cal.y = (double)y / (double)numCalPoints;
-    _gyro_cal.z = (double)z / (double)numCalPoints; 
+    _gyro_cal.z = (double)z / (double)numCalPoints;
 }
 
 /// @brief Set the accelerometer full scale range.

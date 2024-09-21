@@ -60,12 +60,12 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
 Core/Src/system_stm32f4xx.c \
-Core/Src/main.c
 
 CXX_SOURCES = \
 Core/Src/main.cpp \
 Core/Src/QuadcopterManager.cpp \
-Core/Src/MPUXX50.cpp 
+Core/Src/MPUXX50.cpp \
+Core/Drivers/eeprom/Src/eeprom_manager.cpp
 
 # ASM sources
 ASM_SOURCES =  \
