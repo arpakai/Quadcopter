@@ -10,6 +10,7 @@
 #include "QuaternionFilter.h"
 #include "EKF.h"
 #include "MPU9250Regs.h"
+//#include "Drivers/eeprom/Inc/eeprom_manager.h"
 
 // Constants
 constexpr double PI = 3.14159;
@@ -128,12 +129,14 @@ class MPUXX50
 {
 private:
     // Functions
-    void _tune_acc_gyro_impl();
     void _set_acc_gyro_for_calibration();
     void _collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias);
+    void _write_accel_offset();
+    void _write_gyro_offset();
 
     void _set_gyro_scale_range(uint8_t gFSR);
     void _set_acc_scale_range(uint8_t aFSR);
+
     kalmanf _calc_kalman_filter(ProcessedData &process_data);
     madgwickf _calc_madgwick_filter(ProcessedData &process_data);
     complementaryf _calc_complementary_filter(ProcessedData &process_data);
@@ -155,8 +158,8 @@ private:
     void kalman_1d(double kalman_state, double kalman_uncertainty, double kalman_input, double kalman_measurement);
     void _init_mag();
 
-    double acc_bias[3]{0.0};    // acc calibration value in ACCEL_FS_SEL: 2g 
-    double gyro_bias[3]{0.0};   // gyro calibration value in GYRO_FS_SEL: 250dps
+    double _acc_bias[3]{0.0};    // acc calibration value in ACCEL_FS_SEL: 2g 
+    double _gyro_bias[3]{0.0};   // gyro calibration value in GYRO_FS_SEL: 250dps
 
     //  Quaternion
     float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
@@ -221,6 +224,7 @@ public:
 
     // Functions
     uint8_t begin();
+    void _tune_acc_gyro_impl();
     void _calibrate_gyro(uint16_t numCalPoints);
     RawData _read_raw_data();
     ProcessedData _process_data();
@@ -231,4 +235,5 @@ public:
     void setAccFullScaleRange(uint8_t aFSR);
     void setDeltaTime(float dt);
     void setTau(float tau);
+    
 };

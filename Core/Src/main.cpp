@@ -112,6 +112,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim14);
 
+  //imu._tune_acc_gyro_impl();
+
   /*MPUXX50*/
   // CONFIGURE IMU
   imu.setGyroFullScaleRange(GFSR_500DPS);
@@ -119,20 +121,15 @@ int main(void)
   imu.setDeltaTime(0.004);
   imu.setTau(0.98);
 
-  // Check if IMU configured properly and block if it didn't
-  if (imu.begin() != 1)
-  {
-    snprintf((char *)serialBuf, sizeof(serialBuf), "ERROR!\r\n");
-    HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
-    while (1)
-    {
-    }
-  }
-
-  // Calibrate the IMU
-  snprintf((char *)serialBuf, sizeof(serialBuf), "CALIBRATING...\r\n");
-  HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
-  imu._calibrate_gyro(1500);
+  // // Check if IMU configured properly and block if it didn't
+  // if (imu.begin() != 1)
+  // {
+  //   snprintf((char *)serialBuf, sizeof(serialBuf), "ERROR!\r\n");
+  //   HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
+  //   while (1)
+  //   {
+  //   }
+  // }
 
   ProcessedData processedData{0};
 

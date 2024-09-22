@@ -2,8 +2,7 @@
 
 #include "ieeprom_mpu.h"
 
-
-class EepromManager : public IeepromMpu
+class EepromManager //: public IeepromMpu
 {
 public:
     static EepromManager* _get_instance();

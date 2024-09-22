@@ -136,7 +136,8 @@ C_INCLUDES =  \
 -IMiddlewares/Third_Party/FreeRTOS/Source/include \
 -IMiddlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2 \
 -IMiddlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
--IDrivers/CMSIS/Include
+-IDrivers/CMSIS/Include \
+-ICore/Drivers/eeprom/Inc 
 
 CXX_INCLUDES = $(C_INCLUDES) \
 -I../../tools/gcc-arm-none-eabi/arm-none-eabi/include/c++/10.3.1

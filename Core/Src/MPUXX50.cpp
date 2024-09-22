@@ -55,7 +55,13 @@ uint8_t MPUXX50::begin()
         _set_acc_scale_range(_aFSR);
         _set_gyro_scale_range(_gFSR);
 
-        // quatFilter.select_filter(QuatFilterSel::MADGWICK);
+        quatFilter.select_filter(QuatFilterSel::MAHONY);
+
+        // Calibrate the IMU
+        memset(serialBuffer, 0, sizeof(serialBuffer));
+        snprintf((char *)serialBuffer, sizeof(serialBuffer), "CALIBRATING...\r\n");
+        HAL_UART_Transmit(_pUARTx, serialBuffer, strlen((char *)serialBuffer), HAL_MAX_DELAY);
+        _calibrate_gyro(1500);
 
         return 1;
     }
@@ -689,11 +695,11 @@ void MPUXX50::_set_acc_full_scale_range()
 //  accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz
 void MPUXX50::_set_acc_sample_rate_configuration()
 {
-    HAL_I2C_Mem_Read(_pI2Cx, _addr, ACCEL_CONFIG2, 1, &_read_data, 1, I2C_TIMOUT_MS);       // get current ACCEL_CONFIG2 register value
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, ACCEL_CONFIG2, I2C_MEMADD_SIZE_8BIT, &_read_data, 1, I2C_TIMOUT_MS);       // get current ACCEL_CONFIG2 register value
     _read_data = _read_data & ~0x0F;                                                        // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0])
     _read_data = _read_data | (~(_accel_fchoice << 3) & 0x08);                              // Set accel_fchoice_b to 1
     _read_data = _read_data | (uint8_t(GYRO_DLPF_CFG::DLPF_41HZ) & 0x07);                   // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
-    HAL_I2C_Mem_Write(_pI2Cx, _addr, ACCEL_CONFIG2, 1, &_read_data, 1, I2C_TIMOUT_MS);      // Write new ACCEL_CONFIG2 register value
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, ACCEL_CONFIG2, I2C_MEMADD_SIZE_8BIT, &_read_data, 1, I2C_TIMOUT_MS);      // Write new ACCEL_CONFIG2 register value
 }
 
 /// @brief 
@@ -703,29 +709,100 @@ void MPUXX50::_set_acc_sample_rate_configuration()
 void MPUXX50::_configure_interrupts()
 {
     _write_data = 0x22;
-    HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_PIN_CFG, 1, &_write_data, 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_PIN_CFG, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);
     _write_data = 0x01;
-    HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, 1, &_read_data, 1, I2C_TIMOUT_MS);     // Enable data ready (bit 0) interrupt
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, I2C_MEMADD_SIZE_8BIT, &_read_data, 1, I2C_TIMOUT_MS);     // Enable data ready (bit 0) interrupt
+}
+
+void MPUXX50::_write_gyro_offset()
+{
+    // Construct the gyro biases for push to the hardware gyro bias registers, which are reset to zero upon device startup
+    uint8_t gyro_offset_data[6]{0};
+    gyro_offset_data[0] = (-(int16_t)_gyro_bias[0] / 4 >> 8) & 0xFF; // Divide by 4 to get 32.9 LSB per deg/s to conform to expected bias input format
+    gyro_offset_data[1] = (-(int16_t)_gyro_bias[0] / 4) & 0xFF;      // Biases are additive, so change sign on calculated average gyro biases
+    gyro_offset_data[2] = (-(int16_t)_gyro_bias[1] / 4 >> 8) & 0xFF;
+    gyro_offset_data[3] = (-(int16_t)_gyro_bias[1] / 4) & 0xFF;
+    gyro_offset_data[4] = (-(int16_t)_gyro_bias[2] / 4 >> 8) & 0xFF;
+    gyro_offset_data[5] = (-(int16_t)_gyro_bias[2] / 4) & 0xFF;
+    // Push gyro biases to hardware registers
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, XG_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[0], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, XG_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[1], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, YG_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[2], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, YG_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[3], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, ZG_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[4], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, ZG_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &gyro_offset_data[5], 1, I2C_TIMOUT_MS);
+}
+
+/// @brief     
+    // Construct the accelerometer biases for push to the hardware accelerometer bias registers. These registers contain
+    // factory trim values which must be added to the calculated accelerometer biases; on boot up these registers will hold
+    // non-zero values. In addition, bit 0 of the lower byte must be preserved since it is used for temperature
+    // compensation calculations. Accelerometer bias registers expect bias input as 2048 LSB per g, so that
+    // the accelerometer biases calculated above must be divided by 8.
+void MPUXX50::_write_accel_offset()
+{
+    uint8_t read_data[2] = {0};
+    int16_t acc_bias_reg[3] = {0, 0, 0};                                                                    // A place to hold the factory accelerometer trim biases
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, XA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &read_data[0], 2, I2C_TIMOUT_MS);   // Read factory accelerometer trim values
+    acc_bias_reg[0] = ((int16_t)read_data[0] << 8) | read_data[1];
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, YA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &read_data[0], 2, I2C_TIMOUT_MS);
+    acc_bias_reg[1] = ((int16_t)read_data[0] << 8) | read_data[1];
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, ZA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &read_data[0], 2, I2C_TIMOUT_MS);
+    acc_bias_reg[2] = ((int16_t)read_data[0] << 8) | read_data[1];
+    int16_t mask_bit[3] = {1, 1, 1}; // Define array to hold mask bit for each accelerometer bias axis
+    for (int i = 0; i < 3; i++)
+    {
+        if (acc_bias_reg[i] % 2)
+        {
+            mask_bit[i] = 0;
+        }
+        acc_bias_reg[i] -= (int16_t)_acc_bias[i] >> 3; // Subtract calculated averaged accelerometer bias scaled to 2048 LSB/g
+        if (mask_bit[i])
+        {
+            acc_bias_reg[i] = acc_bias_reg[i] & ~mask_bit[i]; // Preserve temperature compensation bit
+        }
+        else
+        {
+            acc_bias_reg[i] = acc_bias_reg[i] | 0x0001; // Preserve temperature compensation bit
+        }
+    }
+    uint8_t write_data[6] = {0};
+    write_data[0] = (acc_bias_reg[0] >> 8) & 0xFF;
+    write_data[1] = (acc_bias_reg[0]) & 0xFF;
+    write_data[2] = (acc_bias_reg[1] >> 8) & 0xFF;
+    write_data[3] = (acc_bias_reg[1]) & 0xFF;
+    write_data[4] = (acc_bias_reg[2] >> 8) & 0xFF;
+    write_data[5] = (acc_bias_reg[2]) & 0xFF;
+    // Push accelerometer biases to hardware registers
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, XA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &write_data[0], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, XA_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &write_data[1], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, YA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &write_data[2], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, YA_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &write_data[3], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, ZA_OFFSET_H, I2C_MEMADD_SIZE_8BIT, &write_data[4], 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, _addr, ZA_OFFSET_L, I2C_MEMADD_SIZE_8BIT, &write_data[5], 1, I2C_TIMOUT_MS);
 }
 
 void MPUXX50::_collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias)
 {
     // At end of sample accumulation, turn off FIFO sensor read
-    uint8_t data[12];                                   // data array to hold accelerometer and gyro x, y, z, data
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Enable data ready (bit 0) interrupt           // Disable gyro and accelerometer sensors for FIFO
-    HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_COUNTH, 2, &data[0], 1, I2C_TIMOUT_MS); // read FIFO sample count
+    uint8_t data[12];                                                                                   // data array to hold accelerometer and gyro x, y, z, data
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);   // Enable data ready (bit 0) interrupt           // Disable gyro and accelerometer sensors for FIFO
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, FIFO_COUNTH, I2C_MEMADD_SIZE_8BIT, &data[0], 2, I2C_TIMOUT_MS);                        // read FIFO sample count
+    
     uint16_t fifo_count = ((uint16_t)data[0] << 8) | data[1];
     uint16_t packet_count = fifo_count / 12; // How many sets of full gyro and accelerometer data for averaging
+
     for (uint16_t ii = 0; ii < packet_count; ii++)
     {
         int16_t accel_temp[3] = {0, 0, 0}, gyro_temp[3] = {0, 0, 0};
-        HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_R_W, 12, &data[0], 1, I2C_TIMOUT_MS);  // read data for averaging         
+        HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_R_W, I2C_MEMADD_SIZE_8BIT, &data[0], 12, I2C_TIMOUT_MS);  // read data for averaging         
         accel_temp[0] = (int16_t)(((int16_t)data[0] << 8) | data[1]); // Form signed 16-bit integer for each sample in FIFO
         accel_temp[1] = (int16_t)(((int16_t)data[2] << 8) | data[3]);
         accel_temp[2] = (int16_t)(((int16_t)data[4] << 8) | data[5]);
         gyro_temp[0] = (int16_t)(((int16_t)data[6] << 8) | data[7]);
         gyro_temp[1] = (int16_t)(((int16_t)data[8] << 8) | data[9]);
         gyro_temp[2] = (int16_t)(((int16_t)data[10] << 8) | data[11]);
+
         a_bias[0] += (double)accel_temp[0]; // Sum individual signed 16-bit biases to get accumulated signed 32-bit biases
         a_bias[1] += (double)accel_temp[1];
         a_bias[2] += (double)accel_temp[2];
@@ -733,12 +810,14 @@ void MPUXX50::_collect_acc_gyro_data_for_calibration(double *a_bias, double *g_b
         g_bias[1] += (double)gyro_temp[1];
         g_bias[2] += (double)gyro_temp[2];
     }
+
     a_bias[0] /= (double)packet_count; // Normalize sums to get average count biases
     a_bias[1] /= (double)packet_count;
     a_bias[2] /= (double)packet_count;
     g_bias[0] /= (double)packet_count;
     g_bias[1] /= (double)packet_count;
     g_bias[2] /= (double)packet_count;
+
     if (a_bias[2] > 0L)
     {
         a_bias[2] -= 16384.0;
@@ -752,30 +831,30 @@ void MPUXX50::_collect_acc_gyro_data_for_calibration(double *a_bias, double *g_b
 void MPUXX50::_set_acc_gyro_for_calibration()
 {
     // reset device
-    _write_data = 0x80; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS); // Write a one to bit 7 reset bit; toggle reset device
+    _write_data = 0x80; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS); // Write a one to bit 7 reset bit; toggle reset device
     HAL_Delay(100);
 
     // get stable time source; Auto select clock source to be PLL gyroscope reference if ready
     // else use the internal oscillator, bits 2:0 = 001
-    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS); 
-    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, 1, &_write_data, 1, I2C_TIMOUT_MS);     
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS); 
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);     
     HAL_Delay(200);
     // Configure device for bias calculation
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Disable all interrupts  
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);       // Disable FIFO
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Turn on internal clock source
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, I2C_MST_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);  // Disable I2C master
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Disable FIFO and I2C master modes
-    _write_data = 0x0C; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Reset FIFO and DMP    
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, INT_ENABLE, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);    // Disable all interrupts  
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);       // Disable FIFO
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_1, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);    // Turn on internal clock source
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, I2C_MST_CTRL, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);  // Disable I2C master
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);     // Disable FIFO and I2C master modes
+    _write_data = 0x0C; HAL_I2C_Mem_Write(_pI2Cx, _addr, PWR_MGMT_2, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);    // Reset FIFO and DMP    
     HAL_Delay(15);
     // Configure MPU6050 gyro and accelerometer for bias calculation
-    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, MPU_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Set low-pass filter to 188 Hz 
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, SMPLRT_DIV, 1, &_write_data, 1, I2C_TIMOUT_MS);    // Set sample rate to 1 kHz
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, GYRO_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);   // Set gyro full-scale to 250 degrees per second, maximum sensitivity
-    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, ACCEL_CONFIG, 1, &_write_data, 1, I2C_TIMOUT_MS);  // Set accelerometer full-scale to 2 g, maximum sensitivity
+    _write_data = 0x01; HAL_I2C_Mem_Write(_pI2Cx, _addr, MPU_CONFIG, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);    // Set low-pass filter to 188 Hz 
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, SMPLRT_DIV, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);    // Set sample rate to 1 kHz
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, GYRO_CONFIG, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);   // Set gyro full-scale to 250 degrees per second, maximum sensitivity
+    _write_data = 0x00; HAL_I2C_Mem_Write(_pI2Cx, _addr, ACCEL_CONFIG, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);  // Set accelerometer full-scale to 2 g, maximum sensitivity
     // Configure FIFO to capture accelerometer and gyro data for bias calculation
-    _write_data = 0x40; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, 1, &_write_data, 1, I2C_TIMOUT_MS);     // Enable FIFO
-    _write_data = 0x78; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, 1, &_write_data, 1, I2C_TIMOUT_MS);       // Enable gyro and accelerometer sensors for FIFO  (max size 512 bytes in MPU-9250)
+    _write_data = 0x40; HAL_I2C_Mem_Write(_pI2Cx, _addr, USER_CTRL, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);     // Enable FIFO
+    _write_data = 0x78; HAL_I2C_Mem_Write(_pI2Cx, _addr, FIFO_EN, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);       // Enable gyro and accelerometer sensors for FIFO  (max size 512 bytes in MPU-9250)
     HAL_Delay(40);      
 }
 
@@ -787,5 +866,7 @@ void MPUXX50::_set_acc_gyro_for_calibration()
 void MPUXX50::_tune_acc_gyro_impl()
 {
     _set_acc_gyro_for_calibration();
-    _collect_acc_gyro_data_for_calibration(acc_bias, gyro_bias);
+    _collect_acc_gyro_data_for_calibration(_acc_bias, _gyro_bias);
+    _write_accel_offset();
+    _write_gyro_offset();
 }
