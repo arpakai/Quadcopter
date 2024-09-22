@@ -4,7 +4,7 @@
 
 /// @brief MPUXX50 I2C constructor
 /// @param pI2Cx Pointer to I2C structure config
-MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx = nullptr) : 
+MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx, UART_HandleTypeDef *pUARTx) : 
                                                                         q{1.0, 0.0, 0.0, 0.0},
                                                                         aScaleFactor{0}, gScaleFactor{0}, 
                                                                         _accel_fchoice{0x01}, _gyro_fchoice{0x03},
@@ -12,7 +12,7 @@ MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx 
                                                                         _kalman_angle_pitch{0}, _kalman_uncertainty_angle_pitch{2 * 2},
                                                                         _kalman_1d_output{0},
                                                                         _gFSR(GFSR_500DPS), _aFSR(AFSR_4G),
-                                                                        _tau(0.98f), _dt(0.004f),
+                                                                        _tau(0.98), _dt(0.004),
                                                                         Mscale(MFS_16BITS), Mmode(0x02),
                                                                         _gyro_cal{0}, _mag_data{0},
                                                                         _raw_data{0}, _processed_data{0},
@@ -28,7 +28,7 @@ MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx 
 
 /// @brief Boot up the IMU and ensure we have a valid connection
 /// @return Success [1] or fail [0]
-uint8_t MPUXX50::begin()
+uint8_t MPUXX50::_initialize()
 {
     // Initialize variables
     uint8_t check;
@@ -61,6 +61,7 @@ uint8_t MPUXX50::begin()
         memset(serialBuffer, 0, sizeof(serialBuffer));
         snprintf((char *)serialBuffer, sizeof(serialBuffer), "CALIBRATING...\r\n");
         HAL_UART_Transmit(_pUARTx, serialBuffer, strlen((char *)serialBuffer), HAL_MAX_DELAY);
+
         _calibrate_gyro(1500);
 
         return 1;
@@ -220,7 +221,6 @@ ProcessedData MPUXX50::_process_data()
 template <typename T>
 T MPUXX50::_get_calculated_attitude()
 {
-    _processed_data = _process_data();
     static_assert(sizeof(T) == 0, "get_value not implemented for this type");
     return T(); // Default constructor
 }
@@ -230,6 +230,9 @@ template <>
 Attitude MPUXX50::_get_calculated_attitude<Attitude>()
 {
     Attitude ret_val;
+
+    _processed_data = _process_data();
+
     ret_val.roll = _processed_data.gx;
     ret_val.pitch = _processed_data.gy;
     ret_val.yaw = _processed_data.gz;
@@ -242,6 +245,9 @@ template <>
 kalmanf MPUXX50::_get_calculated_attitude<kalmanf>()
 {
     kalmanf ret_val;
+
+    _processed_data = _process_data();
+
     ret_val = _calc_kalman_filter(_processed_data);
 
     return ret_val;
@@ -251,7 +257,9 @@ template <>
 madgwickf MPUXX50::_get_calculated_attitude<madgwickf>()
 {
     madgwickf ret_val;
+
     _processed_data = _process_data();
+
     quatFilter.update((-1 * _processed_data.ax), _processed_data.ay, _processed_data.az,
                       (_processed_data.gx * DEG2RAD), (-_processed_data.gy * DEG2RAD), (-_processed_data.gz * DEG2RAD),
                       _processed_data.mx, -_processed_data.my, _processed_data.mz, quat);
@@ -272,10 +280,10 @@ madgwickf MPUXX50::_get_calculated_attitude<madgwickf>()
     ret_val.pitch *= 180.0 / PI;
     ret_val.yaw *= 180.0 / PI;
     ret_val.yaw += magnetic_declination;
-    if (ret_val.yaw >= +180.f)
-        ret_val.yaw -= 360.f;
-    else if (ret_val.yaw < -180.f)
-        ret_val.yaw += 360.f;
+    if (ret_val.yaw >= +180.0)
+        ret_val.yaw -= 360.0;
+    else if (ret_val.yaw < -180.0)
+        ret_val.yaw += 360.0;
 
     linAcc[0] = _processed_data.ax + a31;
     linAcc[1] = _processed_data.ay + a32;
@@ -290,6 +298,8 @@ complementaryf MPUXX50::_get_calculated_attitude<complementaryf>()
 {
     complementaryf ret_val;
 
+    _processed_data = _process_data();
+    
     /*Complementary filter*/
     // double accelPitch = atan2(_processed_data.ay, _processed_data.az) * RAD2DEG;
     // double accelRoll = atan2(_processed_data.ax, _processed_data.az) * RAD2DEG;

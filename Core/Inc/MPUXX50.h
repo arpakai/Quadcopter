@@ -128,7 +128,14 @@ enum class ACCEL_DLPF_CFG : uint8_t
 class MPUXX50
 {
 private:
+
     // Functions
+
+    void _calibrate_gyro(uint16_t numCalPoints);
+    RawData _read_raw_data();
+    ProcessedData _process_data();
+
+    // _tune_acc_gyro_impl()
     void _set_acc_gyro_for_calibration();
     void _collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias);
     void _write_accel_offset();
@@ -217,23 +224,19 @@ private:
 
 public:
     // Init
-    MPUXX50(I2C_HandleTypeDef *pI2Cx, UART_HandleTypeDef *pUARTx);
+    MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx = nullptr);
 
     double _angle_roll;
     double _angle_pitch;
 
     // Functions
-    uint8_t begin();
+    uint8_t _initialize();
     void _tune_acc_gyro_impl();
-    void _calibrate_gyro(uint16_t numCalPoints);
-    RawData _read_raw_data();
-    ProcessedData _process_data();
 
     template<typename T> T _get_calculated_attitude();
-    
+
     void setGyroFullScaleRange(uint8_t gFSR);
     void setAccFullScaleRange(uint8_t aFSR);
     void setDeltaTime(float dt);
     void setTau(float tau);
-    
 };

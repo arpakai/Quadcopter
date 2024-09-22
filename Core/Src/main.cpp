@@ -22,7 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "QuadcopterManager.h"
-#include "MPUXX50.h"
+#include "wmpu.h"
 // #include "MPU9250.h"
 /* USER CODE END Includes */
 
@@ -50,6 +50,9 @@ TIM_HandleTypeDef htim14;
 UART_HandleTypeDef huart4;
 
 /* USER CODE BEGIN PV */
+std::vector<I2C_HandleTypeDef*> i2c_handles = { &hi2c1};
+WMPU wmpu(i2c_handles, &huart4);
+
 MPUXX50 imu(&hi2c1, &huart4);
 uint8_t serialBuf[100]{0};
 Attitude attitude{0};
@@ -112,26 +115,6 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim14);
 
-  //imu._tune_acc_gyro_impl();
-
-  /*MPUXX50*/
-  // CONFIGURE IMU
-  imu.setGyroFullScaleRange(GFSR_500DPS);
-  imu.setAccFullScaleRange(AFSR_4G);
-  imu.setDeltaTime(0.004);
-  imu.setTau(0.98);
-
-  // // Check if IMU configured properly and block if it didn't
-  // if (imu.begin() != 1)
-  // {
-  //   snprintf((char *)serialBuf, sizeof(serialBuf), "ERROR!\r\n");
-  //   HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
-  //   while (1)
-  //   {
-  //   }
-  // }
-
-  ProcessedData processedData{0};
 
   /*MPU9250*/
   // if(mpu.setup(0x68, &hi2c1, &huart4)){
@@ -142,6 +125,7 @@ int main(void)
   int count = 0;
   madgwickf madgwick_sum{0};
   ProcessedData data_sum{0};
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -155,7 +139,9 @@ int main(void)
     {
       // processedData = imu._process_data();
 
-      madgwick = imu._get_calculated_attitude<madgwickf>();
+      wmpu._get_roll_pitch_yaw(madgwick_sum);
+
+      //madgwick = imu._get_calculated_attitude<madgwickf>();
 
       madgwick_sum.roll += madgwick.roll;
       madgwick_sum.pitch += madgwick.pitch;
