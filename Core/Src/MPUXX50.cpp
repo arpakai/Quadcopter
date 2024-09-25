@@ -58,10 +58,6 @@ uint8_t MPUXX50::_initialize()
         quatFilter.select_filter(QuatFilterSel::MAHONY);
 
         // Calibrate the IMU
-        memset(serialBuffer, 0, sizeof(serialBuffer));
-        snprintf((char *)serialBuffer, sizeof(serialBuffer), "CALIBRATING...\r\n");
-        HAL_UART_Transmit(_pUARTx, serialBuffer, strlen((char *)serialBuffer), HAL_MAX_DELAY);
-
         _calibrate_gyro(1500);
 
         return 1;
@@ -464,6 +460,10 @@ void MPUXX50::_calibrate_gyro(uint16_t numCalPoints)
     int32_t x = 0;
     int32_t y = 0;
     int32_t z = 0;
+
+    memset(serialBuffer, 0, sizeof(serialBuffer));
+    snprintf((char *)serialBuffer, sizeof(serialBuffer), "CALIBRATING...\r\n");
+    HAL_UART_Transmit(_pUARTx, serialBuffer, strlen((char *)serialBuffer), HAL_MAX_DELAY);
 
     // Zero guard
     if (numCalPoints == 0)

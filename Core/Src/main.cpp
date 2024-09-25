@@ -35,6 +35,7 @@
 /* USER CODE BEGIN PD */
 #define TRUE 1
 #define FALSE 0
+#define DEBUG_MODE TRUE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,17 +51,11 @@ TIM_HandleTypeDef htim14;
 UART_HandleTypeDef huart4;
 
 /* USER CODE BEGIN PV */
-std::vector<I2C_HandleTypeDef*> i2c_handles = { &hi2c1};
-WMPU wmpu(i2c_handles, &huart4);
 
-MPUXX50 imu(&hi2c1, &huart4);
+// MPUXX50 imu(&hi2c1, &huart4);
 uint8_t serialBuf[100]{0};
-Attitude attitude{0};
-kalmanf kalman{0};
-complementaryf comp{0};
-madgwickf madgwick{0};
-quaternionf quat{0};
 bool timFlag = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,16 +72,15 @@ static void MX_UART4_Init(void);
 /* USER CODE BEGIN 0 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-
 }
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
- {
+{
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -113,18 +107,19 @@ int main(void)
   MX_TIM14_Init();
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
+  snprintf((char*)serialBuf, sizeof(serialBuf), "MPU Init\r\n");
+  HAL_UART_Transmit(&huart4, serialBuf, strlen((char*)serialBuf), HAL_MAX_DELAY);
+
   HAL_TIM_Base_Start_IT(&htim14);
 
+  I2C_HandleTypeDef *i2c_handles[] = {&hi2c1};
+  size_t num_devices = sizeof(i2c_handles) / sizeof(i2c_handles[0]);
+  WMPU wmpu(i2c_handles, num_devices, &huart4);
+  
+  wmpu._init();
 
-  /*MPU9250*/
-  // if(mpu.setup(0x68, &hi2c1, &huart4)){
-  //   while(1){
-  //     snprintf((char*)serialBuf, sizeof(serialBuf), "MPU connection failed. Please check your connection with `connection_check` example.");
-  //   }
-  // }
-  int count = 0;
-  madgwickf madgwick_sum{0};
-  ProcessedData data_sum{0};
+  Attitude data_sum{0};
+  madgwickf madgwick_data{0};
 
   /* USER CODE END 2 */
 
@@ -133,41 +128,16 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+    //TODO: timflag adresi wrapper classa verilecek. Mutex veya queue ile veri paylaşımı yapılacak. Thread safe olacak. #IF THREAD_USED yeri eklenecek
+    //TODO: get_roll_pitch_yaw fonksiyonuna sadece Attitude verilecek. Diğer veriler orada işlenecek.
+    //TODO: pwm kütüphanesi oluştur motorlar için ve hesaplamarı consteval ve constexpr ifadelerini kullanarak yapabilecek şekilde hazırla.
     /* USER CODE BEGIN 3 */
     if (timFlag)
     {
       // processedData = imu._process_data();
 
-      wmpu._get_roll_pitch_yaw(madgwick_sum);
-
-      //madgwick = imu._get_calculated_attitude<madgwickf>();
-
-      madgwick_sum.roll += madgwick.roll;
-      madgwick_sum.pitch += madgwick.pitch;
-      madgwick_sum.yaw += madgwick.yaw;
-      // data_sum.ax = processedData.ax;
-      // data_sum.ay = processedData.ay;
-      // data_sum.az = processedData.az;
-      count++;
-
-      if(10 == count)
-      {
-        madgwick_sum.roll /= 10.00;
-        madgwick_sum.pitch /= 10.00;
-        madgwick_sum.yaw /= 10.00;
-        sprintf((char *)serialBuf, "\r\nROT  R:%.2lf, P:%.2lf, Y:%.2lf, Count:%d\n\r",
-                                    madgwick_sum.roll, madgwick_sum.pitch, madgwick_sum.yaw, count
-                                    );
-        // data_sum.ax /= 10.00;
-        // data_sum.ay /= 10.00;
-        // data_sum.az /= 10.00;
-        // sprintf((char *)serialBuf, "\r\nACC aX:%.2lf, aY:%.2lf, aZ:%.2lf",
-        //                             data_sum.ax, data_sum.ay, data_sum.az
-        //                             );
-        HAL_UART_Transmit(&huart4, serialBuf, strlen((char *)serialBuf), HAL_MAX_DELAY);
-        count = 0;
-      }
+      wmpu._set_computed_average_rpy(20, madgwick_data);
+      wmpu._print_roll_pitch_yaw(madgwick_data.roll, madgwick_data.pitch, madgwick_data.yaw, &huart4);
 
       HAL_GPIO_TogglePin(blueLED_GPIO_Port, blueLED_Pin);
       timFlag = false;
@@ -177,22 +147,22 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -207,9 +177,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -222,10 +191,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_I2C1_Init(void)
 {
 
@@ -252,14 +221,13 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
-  * @brief TIM14 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM14 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM14_Init(void)
 {
 
@@ -270,11 +238,11 @@ static void MX_TIM14_Init(void)
   /* USER CODE BEGIN TIM14_Init 1 */
 
   /* USER CODE END TIM14_Init 1 */
-  htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 8400 - 1;
-  htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 5 - 1;
-  htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim14.Instance = TIM14;                
+  htim14.Init.Prescaler = 1050 - 1;                     // 84 000 000 / 1050 = 80kHz => 80khz / 10 = 8000Hz => 1/8000 = 0.125ms
+  htim14.Init.CounterMode = TIM_COUNTERMODE_UP;         //             PRESCALER               PERIOD
+  htim14.Init.Period = 10 - 1; // 5ms                    // 84 000 000 / 8400 = 10kHz => 10khz / 5 = 2000Hz => 1/2000 = 0.5ms
+  htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;   
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
   {
@@ -283,14 +251,13 @@ static void MX_TIM14_Init(void)
   /* USER CODE BEGIN TIM14_Init 2 */
 
   /* USER CODE END TIM14_Init 2 */
-
 }
 
 /**
-  * @brief UART4 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief UART4 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_UART4_Init(void)
 {
 
@@ -316,19 +283,18 @@ static void MX_UART4_Init(void)
   /* USER CODE BEGIN UART4_Init 2 */
 
   /* USER CODE END UART4_Init 2 */
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -338,10 +304,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, greenLED_Pin|orangeLED_Pin|redLED_Pin|blueLED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, greenLED_Pin | orangeLED_Pin | redLED_Pin | blueLED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : greenLED_Pin orangeLED_Pin redLED_Pin blueLED_Pin */
-  GPIO_InitStruct.Pin = greenLED_Pin|orangeLED_Pin|redLED_Pin|blueLED_Pin;
+  GPIO_InitStruct.Pin = greenLED_Pin | orangeLED_Pin | redLED_Pin | blueLED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -353,8 +319,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(MPU_Int_Pin_GPIO_Port, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -362,19 +328,20 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM2 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM2 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM2) {
+  if (htim->Instance == TIM2)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
@@ -388,9 +355,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -402,14 +369,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

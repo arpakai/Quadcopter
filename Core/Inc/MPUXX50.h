@@ -234,9 +234,26 @@ public:
     void _tune_acc_gyro_impl();
 
     template<typename T> T _get_calculated_attitude();
+    template<typename T> void _set_computed_average_rpy(uint8_t num_samples, T& filter_data);
 
     void setGyroFullScaleRange(uint8_t gFSR);
     void setAccFullScaleRange(uint8_t aFSR);
     void setDeltaTime(float dt);
     void setTau(float tau);
 };
+
+//Template functions
+template<typename Filter>
+void MPUXX50::_set_computed_average_rpy(uint8_t num_samples, Filter& filter_data)
+{
+    double r = 0, p = 0, y = 0;
+    for (uint8_t i = 0; i < num_samples; ++i) {
+        filter_data =  _get_calculated_attitude<Filter>();
+        r += filter_data.roll;
+        p += filter_data.pitch;
+        y += filter_data.yaw;
+    }
+    filter_data.roll = r / num_samples;
+    filter_data.pitch = p / num_samples;
+    filter_data.yaw = y / num_samples;
+}
