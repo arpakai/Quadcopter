@@ -22,12 +22,12 @@ constexpr double THRESHOLD = 1e-6;
 // Structs
 struct RawData
 {
-    int16_t ax, ay, az, gx, gy, gz, mx, my, mz;
+    int16_t ax, ay, az, gx, gy, gz, gt, mx, my, mz;
 };
 
 struct ProcessedData
 {
-    double ax, ay, az, gx, gy, gz, mx, my, mz;
+    double ax, ay, az, gx, gy, gz, gt, mx, my, mz;
 };
 
 struct GyroCal
@@ -144,6 +144,7 @@ private:
     void _set_gyro_scale_range(uint8_t gFSR);
     void _set_acc_scale_range(uint8_t aFSR);
 
+    // Filter functions
     kalmanf _calc_kalman_filter(ProcessedData &process_data);
     madgwickf _calc_madgwick_filter(ProcessedData &process_data);
     complementaryf _calc_complementary_filter(ProcessedData &process_data);
@@ -168,7 +169,7 @@ private:
     double _acc_bias[3]{0.0};    // acc calibration value in ACCEL_FS_SEL: 2g 
     double _gyro_bias[3]{0.0};   // gyro calibration value in GYRO_FS_SEL: 250dps
 
-    //  Quaternion
+    //  Filter : Quaternion variablees
     float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
     float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
     //float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
@@ -191,6 +192,7 @@ private:
     UART_HandleTypeDef *_pUARTx;
     uint8_t _addr;
 
+    // Filter : Kalman variables
     double _kalman_angle_roll, _kalman_uncertainty_angle_roll;
     double _kalman_angle_pitch, _kalman_uncertainty_angle_pitch;
     double _kalman_1d_output[2];
@@ -215,7 +217,7 @@ private:
     uint8_t serialBuffer[100];
 
     uint8_t _reg_mag_data[7];
-    uint8_t buf[14];
+    uint8_t _mem_buf[14];
 
     QuaternionFilter quatFilter;
     float quat[4] = {1.00, 0.00, 0.00, 0.00}; // vector to hold quaternion
@@ -232,6 +234,13 @@ public:
     // Functions
     uint8_t _initialize();
     void _tune_acc_gyro_impl();
+
+    void _get_processed_accel_data(double& x, double& y, double& z);
+    void _get_processed_gyro_data(double& x, double& y, double& z, long& t);
+    void _get_processed_mag_data(double& x, double& y, double& z);
+    void _get_processed_all_data(double& ax, double& ay, double& az, 
+                                double& gx, double& gy, double& gz, long &gt,
+                                double& mx, double& my, double& mz);
 
     template<typename T> T _get_calculated_attitude();
     template<typename T> void _set_computed_average_rpy(uint8_t num_samples, T& filter_data);

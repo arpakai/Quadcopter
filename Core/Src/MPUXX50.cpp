@@ -19,7 +19,7 @@ MPUXX50::MPUXX50(I2C_HandleTypeDef *pI2Cx, UART_HandleTypeDef *pUARTx) :
                                                                         _attitude{0}, _kalman{0},
                                                                         _read_data{0}, _write_data{0},
                                                                         serialBuffer{0}, _reg_mag_data{0},
-                                                                        buf{0}
+                                                                        _mem_buf{0}
 {
     _pI2Cx = pI2Cx;
     _pUARTx = pUARTx;
@@ -32,6 +32,8 @@ uint8_t MPUXX50::_initialize()
 {
     // Initialize variables
     uint8_t check;
+
+    HAL_Delay(100);
 
     // Confirm device
     HAL_I2C_Mem_Read(_pI2Cx, _addr, WHO_AM_I, 1, &check, 1, I2C_TIMOUT_MS);
@@ -55,6 +57,7 @@ uint8_t MPUXX50::_initialize()
         _set_acc_scale_range(_aFSR);
         _set_gyro_scale_range(_gFSR);
 
+        // Select quaternion filter
         quatFilter.select_filter(QuatFilterSel::MAHONY);
 
         // Calibrate the IMU
@@ -150,18 +153,19 @@ void MPUXX50::_calculate_angles(ProcessedData &processed_data)
 RawData MPUXX50::_read_raw_data()
 {
     RawData ret_val{0};
-    memset(buf, 0, sizeof(buf));
+    memset(_mem_buf, 0, sizeof(_mem_buf));
     // Subroutine for reading the raw data
-    HAL_I2C_Mem_Read(_pI2Cx, _addr, ACCEL_XOUT_H, 1, buf, 14, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Read(_pI2Cx, _addr, ACCEL_XOUT_H, 1, _mem_buf, 14, I2C_TIMOUT_MS);
 
     // Bit shift the data
-    ret_val.ax = buf[0] << 8 | buf[1];
-    ret_val.ay = buf[2] << 8 | buf[3];
-    ret_val.az = buf[4] << 8 | buf[5];
-    // temperature = buf[6] << 8 | buf[7];
-    ret_val.gx = buf[8] << 8 | buf[9];
-    ret_val.gy = buf[10] << 8 | buf[11];
-    ret_val.gz = buf[12] << 8 | buf[13];
+    ret_val.ax = _mem_buf[0] << 8 | _mem_buf[1];
+    ret_val.ay = _mem_buf[2] << 8 | _mem_buf[3];
+    ret_val.az = _mem_buf[4] << 8 | _mem_buf[5];
+    // temperature = _mem_buf[6] << 8 | _mem_buf[7];
+    ret_val.gx = _mem_buf[8] << 8 | _mem_buf[9];
+    ret_val.gy = _mem_buf[10] << 8 | _mem_buf[11];
+    ret_val.gz = _mem_buf[12] << 8 | _mem_buf[13];
+    ret_val.gt = HAL_GetTick();
 
     memset(&_read_data, 0, sizeof(uint8_t));
     HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_ST1, 1, &_read_data, 1, I2C_TIMOUT_MS);
@@ -204,12 +208,55 @@ ProcessedData MPUXX50::_process_data()
     ret_val.gy /= gScaleFactor;
     ret_val.gz /= gScaleFactor;
 
+    ret_val.gt = _raw_data.gt;
+
     ret_val.mx = _raw_data.mx;
     ret_val.my = _raw_data.my;
     ret_val.mz = _raw_data.mz;
 
     // Return structure
     return ret_val;
+}
+
+void MPUXX50::_get_processed_accel_data(double& x, double& y, double& z)
+{
+    _processed_data = _process_data();
+    x = _processed_data.ax;
+    y = _processed_data.ay;
+    z = _processed_data.az;
+}
+
+void MPUXX50::_get_processed_gyro_data(double& x, double& y, double& z, long& t)
+{
+    _processed_data = _process_data();
+    x = _processed_data.gx;
+    y = _processed_data.gy;
+    z = _processed_data.gz;
+}
+
+void MPUXX50::_get_processed_mag_data(double& x, double& y, double& z)
+{
+    _processed_data = _process_data();
+    x = _processed_data.mx;
+    y = _processed_data.my;
+    z = _processed_data.mz;
+}
+
+void MPUXX50::_get_processed_all_data(double& ax, double& ay, double& az, 
+                                      double& gx, double& gy, double& gz, long &gt, 
+                                      double& mx, double& my, double& mz)
+{
+    _processed_data = _process_data();
+    ax = _processed_data.ax;
+    ay = _processed_data.ay;
+    az = _processed_data.az;
+    gx = _processed_data.gx;
+    gy = _processed_data.gy;
+    gz = _processed_data.gz;
+    gt = _processed_data.gt;
+    mx = _processed_data.mx;
+    my = _processed_data.my;
+    mz = _processed_data.mz;
 }
 
 /// @brief Calculate the attitude of the sensor in degrees using a complementary filter
@@ -222,6 +269,7 @@ T MPUXX50::_get_calculated_attitude()
 }
 
 /// @brief No filter _get_calculated_attitude() fn.
+/// It just returns the roll pitch and yaw as gx gy gz.
 template <>
 Attitude MPUXX50::_get_calculated_attitude<Attitude>()
 {
@@ -568,10 +616,10 @@ void MPUXX50::_init_mag()
 
     // enable Mag bypass
     _write_data = 0x22;
-    HAL_I2C_Mem_Write(_pI2Cx, WHO_AM_I, INT_PIN_CFG, 1, &_write_data, 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, WHO_AM_I, INT_PIN_CFG, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);
 
     // read AK8963 WHOAMI
-    HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_WHO_AM_I, 1, &_read_data, 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_WHO_AM_I, I2C_MEMADD_SIZE_8BIT, &_read_data, 1, I2C_TIMOUT_MS);
 
     memset(serialBuffer, 0, sizeof(serialBuffer));
     snprintf((char *)serialBuffer, sizeof(serialBuffer), "MAG WHO AM I is (Must return 72): %d\r\n", _read_data);
@@ -580,17 +628,19 @@ void MPUXX50::_init_mag()
     // Init Mag------------------------------------------------------∏------------------------------------------------------
     // Power down magnetometer
     _write_data = 0x00;
-    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, 1, &_write_data, 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);
     HAL_Delay(100);
 
     // Enter Fuse ROM access mode
     _write_data = 0x0F;
-    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, 1, &_write_data, 1, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, I2C_MEMADD_SIZE_8BIT, &_write_data, 1, I2C_TIMOUT_MS);
     HAL_Delay(100);
 
     // Read the x-, y-, and z-axis calibration values
     uint8_t rawMagCalData[3];
-    HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_ASAX, 1, &rawMagCalData[0], 3, I2C_TIMOUT_MS);
+    HAL_I2C_Mem_Read(_pI2Cx, AK8963_ADDRESS, AK8963_ASAX, I2C_MEMADD_SIZE_8BIT, &rawMagCalData[0], 3, I2C_TIMOUT_MS);
+    HAL_Delay(100);
+
     double calMagX = (double)(rawMagCalData[0] - 128) / 256. + 1.; // Return x-axis sensitivity adjustment values, etc.
     double calMagY = (double)(rawMagCalData[1] - 128) / 256. + 1.;
     double calMagZ = (double)(rawMagCalData[2] - 128) / 256. + 1.;
@@ -598,7 +648,6 @@ void MPUXX50::_init_mag()
     memset(serialBuffer, 0, sizeof(serialBuffer));
     snprintf((char *)serialBuffer, sizeof(serialBuffer), "Mag call off X: %f\r\nMag call off Y: %f\r\nMag call off Z: %f\r\n", calMagX, calMagY, calMagZ);
     HAL_UART_Transmit(_pUARTx, serialBuffer, sizeof(serialBuffer), 100);
-    HAL_Delay(100);
 
     // Power down magnetometer
     _write_data = 0x00;
@@ -607,12 +656,12 @@ void MPUXX50::_init_mag()
 
     // Set magnetometer data resolution and sample ODR
     _write_data = Mscale << 4 | 0x02; // _write_data = 0x16;
+    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, 1, &_write_data, 1, I2C_TIMOUT_MS);
+    HAL_Delay(100);
+
     memset(serialBuffer, 0, sizeof(serialBuffer));
     snprintf((char *)serialBuffer, sizeof(serialBuffer), "_write_data:%d\r\n", _write_data);
     HAL_UART_Transmit(_pUARTx, serialBuffer, sizeof(serialBuffer), 100);
-
-    HAL_I2C_Mem_Write(_pI2Cx, AK8963_ADDRESS, AK8963_CNTL, 1, &_write_data, 1, I2C_TIMOUT_MS);
-    HAL_Delay(100);
 }
 
 kalmanf MPUXX50::_calc_kalman_filter(ProcessedData &process_data)

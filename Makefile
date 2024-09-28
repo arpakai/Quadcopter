@@ -59,7 +59,11 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
-Core/Src/system_stm32f4xx.c 
+Core/Src/system_stm32f4xx.c \
+Core/Modules/imu/Fusion/FusionAhrs.c \
+Core/Modules/imu/Fusion/FusionCompass.c \
+Core/Modules/imu/Fusion/FusionOffset.c 
+
 
 CXX_SOURCES = \
 Core/Src/main.cpp \
@@ -143,7 +147,8 @@ C_INCLUDES =  \
 -IDrivers/CMSIS/Include \
 -ICore/Drivers/EEPROM/Inc \
 -ICore/Drivers/MPU/Inc \
--ICore/Drivers/Motor/Inc 
+-ICore/Drivers/Motor/Inc \
+-ICore/Modules/imu/Fusion
 
 CXX_INCLUDES = $(C_INCLUDES) \
 -I../../tools/gcc-arm-none-eabi/arm-none-eabi/include/c++/10.3.1

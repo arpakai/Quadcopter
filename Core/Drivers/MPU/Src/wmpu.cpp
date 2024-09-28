@@ -1,7 +1,7 @@
 #include "wmpu.h"
 
 WMPU::WMPU(I2C_HandleTypeDef* i2c_handles[], size_t num_devices, UART_HandleTypeDef* uart_handles):
-    _pI2Cx{nullptr}, _pUARTx{uart_handles}, _num_devices{num_devices}, _serial_buf{0}, _attitude{0}
+    _pI2Cx{nullptr}, _pUARTx{uart_handles}, _num_devices{num_devices}, _serial_buf{0}, _attitude{0}, _data_sample_count{0}
 {
     for (size_t i = 0; i < _num_devices; ++i) {
         MPUXX50s.push_back(new MPUXX50(i2c_handles[i], uart_handles));
@@ -35,6 +35,32 @@ void WMPU::_init() {
 void WMPU::_tune_acc_gyro_offsets() {
     for (auto mpu : MPUXX50s) {
         mpu->_tune_acc_gyro_impl();
+    }
+}
+
+void WMPU::_get_processed_accel_data(double& x, double& y, double& z) {
+    for (auto mpu : MPUXX50s) {
+        mpu->_get_processed_accel_data(x, y, z);
+    }
+}
+
+void WMPU::_get_processed_gyro_data(double& x, double& y, double& z, long&t) {
+    for (auto mpu : MPUXX50s) {
+        mpu->_get_processed_gyro_data(x, y, z, t);
+    }
+}
+
+void WMPU::_get_processed_mag_data(double& x, double& y, double& z) {
+    for (auto mpu : MPUXX50s) {
+        mpu->_get_processed_mag_data(x, y, z);
+    }
+}
+
+void WMPU::_get_processed_all_data(double& ax, double& ay, double& az, 
+                                    double& gx, double& gy, double& gz, long &gt,
+                                    double& mx, double& my, double& mz) {
+    for (auto mpu : MPUXX50s) {
+        mpu->_get_processed_all_data(ax, ay, az, gx, gy, gz, gt, mx, my, mz);
     }
 }
 

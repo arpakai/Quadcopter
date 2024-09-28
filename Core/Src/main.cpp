@@ -24,6 +24,7 @@
 #include "QuadcopterManager.h"
 #include "wmpu.h"
 #include "motor_pwm.h"
+#include "Fusion.h"
 // #include "MPU9250.h"
 /* USER CODE END Includes */
 
@@ -37,6 +38,7 @@
 #define TRUE 1
 #define FALSE 0
 #define DEBUG_MODE TRUE
+#define RTOS_MODE FALSE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +63,31 @@ UART_HandleTypeDef huart4;
 // MPUXX50 imu(&hi2c1, &huart4);
 uint8_t serialBuf[100]{0};
 bool timFlag = false;
+
+/* Fusion Variables */
+FusionEuler euler{0};
+FusionVector earth{0};
+
+FusionAhrs ahrs;
+FusionOffset offset;
+
+FusionVector accelerometer;
+FusionVector gyroscope;
+FusionVector magnetometer;
+
+FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
+FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
+FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
+FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
+FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+
+uint32_t currentTimestamp = 0;
+long int previousTimestamp = 0;
+float deltaTime = 0.0f;
+long int timestamp = 0;
 
 /* USER CODE END PV */
 
@@ -131,8 +158,28 @@ int main(void)
   Attitude data_sum{0};
   madgwickf madgwick_data{0};
 
-  MotorPWMManager motorPWMManager(&htim1, TIM_CHANNEL_1);
-  motorPWMManager._init();
+  // MotorPWMManager motorPWMManager(&htim1, TIM_CHANNEL_1);
+  // motorPWMManager._init();
+
+  FusionAhrsInitialise(&ahrs);
+  FusionOffsetInitialise(&offset, 1000);
+
+  const FusionAhrsSettings settings = {
+          .convention = FusionConventionNwu,
+          .gain = 0.5f,
+          .gyroscopeRange = 2000.0f, /* replace this with actual gyroscope range in degrees/s */
+          .accelerationRejection = 10.0f,
+          .magneticRejection = 10.0f,
+          .recoveryTriggerPeriod = 5 /* 5 seconds */
+  };
+  FusionAhrsSetSettings(&ahrs, &settings);
+
+  double ax, ay, az, gx, gy, gz, mx, my, mz;
+  long gt{0};
+  double roll, pitch, yaw;
+
+  double deltaT{0.};
+  uint32_t newTime{0}, oldTime{0};
 
   /* USER CODE END 2 */
 
@@ -143,12 +190,41 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+    
     if (timFlag)
     {
       // processedData = imu._process_data();
 
-      wmpu._set_computed_average_rpy(20, madgwick_data);
-      wmpu._print_roll_pitch_yaw(madgwick_data.roll, madgwick_data.pitch, madgwick_data.yaw, &huart4);
+      // wmpu._set_computed_average_rpy(20, madgwick_data);
+      wmpu._get_processed_all_data(ax, ay, az, gx, gy, gz, gt, mx, my, mz);
+      accelerometer = {static_cast<float>(ax), static_cast<float>(ay), static_cast<float>(az)};
+      gyroscope = {static_cast<float>(gx), static_cast<float>(gy), static_cast<float>(gz)};
+      magnetometer = {static_cast<float>(mx), static_cast<float>(my), static_cast<float>(mz)};
+      timestamp = gt;
+
+      // Apply calibration
+      gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
+      accelerometer = FusionCalibrationInertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
+      magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix, hardIronOffset);
+
+      // Update gyroscope offset correction algorithm
+      gyroscope = FusionOffsetUpdate(&offset, gyroscope);
+
+      // Calculate delta time (in seconds) to account for gyroscope sample clock error
+      deltaTime = (float) (timestamp - previousTimestamp) / (float) 1000.f;
+      previousTimestamp = timestamp;
+
+      FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
+
+      euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
+      earth = FusionAhrsGetEarthAcceleration(&ahrs);
+
+      roll = static_cast<double>(euler.angle.roll);
+      pitch = static_cast<double>(euler.angle.pitch);
+      yaw  = static_cast<double>(euler.angle.yaw);
+
+      wmpu._print_roll_pitch_yaw(roll, pitch, yaw, &huart4);
 
       HAL_GPIO_TogglePin(blueLED_GPIO_Port, blueLED_Pin);
       timFlag = false;
@@ -156,7 +232,6 @@ int main(void)
   }
   /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -337,11 +412,11 @@ static void MX_TIM14_Init(void)
 
   /* USER CODE BEGIN TIM14_Init 1 */
 
-  /* USER CODE END TIM14_Init 1 */
+  /* USER CODE END TIM14_Init 1 */          // to do 1khz timer 84MHz / 8400 = 10khz => 10khz / 10 = 1khz
   htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 1050 - 1;
+  htim14.Init.Prescaler = 8400 - 1;       //  8400 - 1
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 10 - 1;
+  htim14.Init.Period = 10 - 1;            // 10 - 1 
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
@@ -474,7 +549,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 1 */
 
   if (htim == &htim14)
-  { // 84 000 000 / 8400 = 10kHz => 10khz / 10 000 = 1sn
+  { 
+
     timFlag = true;
   }
 

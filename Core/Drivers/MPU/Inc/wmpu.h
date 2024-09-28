@@ -14,6 +14,12 @@ public:
     // Inherited via IMPU
     virtual void _init() override;
     virtual void _tune_acc_gyro_offsets() override;
+    virtual void _get_processed_accel_data(double& x, double& y, double& z) override;
+    virtual void _get_processed_gyro_data(double& x, double& y, double& z, long&t) override;
+    virtual void _get_processed_mag_data(double& x, double& y, double& z) override;
+    virtual void _get_processed_all_data(double& ax, double& ay, double& az,
+                                             double& gx, double& gy, double& gz, long& gt,
+                                             double& mx, double& my, double& mz) override;
     virtual void _set_computed_average_rpy(uint8_t num_samples, double& r, double& p, double& y) override;
     template<typename Filter>
     void _set_computed_average_rpy(uint8_t num_samples, Filter& filter_data);
