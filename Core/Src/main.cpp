@@ -25,6 +25,8 @@
 #include "wmpu.h"
 #include "motor_pwm.h"
 #include "Fusion.h"
+#include "filter.h"
+#include "glm/glm.hpp"
 // #include "MPU9250.h"
 /* USER CODE END Includes */
 
@@ -35,10 +37,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TRUE 1
-#define FALSE 0
-#define DEBUG_MODE TRUE
-#define RTOS_MODE FALSE
+
+glm::vec3 filter_accel(glm::vec3 accel, glm::vec3 gyro, glm::vec3 mag, glm::vec3& rpy);
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/

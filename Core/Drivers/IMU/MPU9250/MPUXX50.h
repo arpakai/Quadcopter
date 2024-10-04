@@ -1,0 +1,157 @@
+#pragma once
+
+// Libraries
+#include <stdint.h>
+#include <math.h>
+#include <stdio.h>
+
+#include "stm32f4xx_hal.h"
+
+#include "imu_types.h"
+#include "imu_constants.h"
+#include "MPU9250Regs.h"
+
+#include "QuaternionFilter.h"
+#include "EKF.h"
+
+class MPUXX50
+{
+private:
+
+    // Functions
+
+    void _calibrate_gyro(uint16_t numCalPoints);
+    RawData _read_raw_data();
+    ProcessedData _process_data();
+
+    // _tune_acc_gyro_impl()
+    void _set_acc_gyro_for_calibration();
+    void _collect_acc_gyro_data_for_calibration(double *a_bias, double *g_bias);
+    void _write_accel_offset();
+    void _write_gyro_offset();
+
+    void _set_gyro_scale_range(uint8_t gFSR);
+    void _set_acc_scale_range(uint8_t aFSR);
+
+    // Filter functions
+    kalmanf _calc_kalman_filter(ProcessedData &process_data);
+    madgwickf _calc_madgwick_filter(ProcessedData &process_data);
+    complementaryf _calc_complementary_filter(ProcessedData &process_data);
+    quaternionf _calc_quaternion_filter(ProcessedData &process_data);
+    void _quaternion_update(ProcessedData &processed_data);
+
+    double _clamp_value(double value, double min_val, double max_val);
+    ProcessedData _convert_accel_values(RawData &raw_data);
+    void _calculate_angles(ProcessedData &processed_data);
+    double _signed_sqrt(double value);
+
+    void _start_sensor();
+    void _configure_gyro_thermo();
+    void _set_gyro_full_scale_range();
+    void _set_acc_full_scale_range();
+    void _set_acc_sample_rate_configuration();
+    void _configure_interrupts();
+
+    void kalman_1d(double kalman_state, double kalman_uncertainty, double kalman_input, double kalman_measurement);
+    void _init_mag();
+
+    double _acc_bias[3]{0.0};    // acc calibration value in ACCEL_FS_SEL: 2g 
+    double _gyro_bias[3]{0.0};   // gyro calibration value in GYRO_FS_SEL: 250dps
+
+    //  Filter : Quaternion variablees
+    float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
+    float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+    //float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
+    //float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
+    float beta = 0.6045998;
+    float zeta = 0.0;
+    
+    double q[4];
+    double deltat = 0.0f, sum = 0.0f;        // integration interval for both filter schemes
+    uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
+    uint32_t Now = 0;        // used to calculate integration interval
+    double lin_ax, lin_ay, lin_az;             // linear acceleration (acceleration with gravity component subtracted)
+    double a12, a22, a31, a32, a33;            // rotation matrix coefficients for Euler angles and gravity components
+    //  Quaternion
+
+    //Variables
+    float aScaleFactor, gScaleFactor;
+    uint8_t _accel_fchoice, _gyro_fchoice;
+    I2C_HandleTypeDef *_pI2Cx;
+    UART_HandleTypeDef *_pUARTx;
+    uint8_t _addr;
+
+    // Filter : Kalman variables
+    double _kalman_angle_roll, _kalman_uncertainty_angle_roll;
+    double _kalman_angle_pitch, _kalman_uncertainty_angle_pitch;
+    double _kalman_1d_output[2];
+
+    uint8_t _gFSR;
+    uint8_t _aFSR;
+    float _tau;
+    float _dt;
+    uint8_t Mscale;
+    uint8_t Mmode;
+
+    // Structs
+    GyroCal _gyro_cal;
+    Mag             _mag_data;
+    RawData         _raw_data;
+    ProcessedData   _processed_data;
+    Attitude _attitude;
+    kalmanf _kalman;
+
+    uint8_t _read_data;
+    uint8_t _write_data;
+    uint8_t serialBuffer[100];
+
+    uint8_t _reg_mag_data[7];
+    uint8_t _mem_buf[14];
+
+    QuaternionFilter quatFilter;
+    float quat[4] = {1.00, 0.00, 0.00, 0.00}; // vector to hold quaternion
+    float magnetic_declination = -7.51;    // Japan, 24th June
+    float linAcc[3]{0};
+
+public:
+    // Init
+    MPUXX50(I2C_HandleTypeDef *pI2Cx = nullptr, UART_HandleTypeDef *pUARTx = nullptr);
+
+    double _angle_roll;
+    double _angle_pitch;
+
+    // Functions
+    uint8_t _initialize();
+    void _tune_acc_gyro_impl();
+
+    void _get_processed_accel_data(double& x, double& y, double& z);
+    void _get_processed_gyro_data(double& x, double& y, double& z, long& t);
+    void _get_processed_mag_data(double& x, double& y, double& z);
+    void _get_processed_all_data(double& ax, double& ay, double& az, 
+                                double& gx, double& gy, double& gz, long &gt,
+                                double& mx, double& my, double& mz);
+
+    template<typename T> T _get_calculated_attitude();
+    template<typename T> void _set_computed_average_rpy(uint8_t num_samples, T& filter_data);
+
+    void setGyroFullScaleRange(uint8_t gFSR);
+    void setAccFullScaleRange(uint8_t aFSR);
+    void setDeltaTime(float dt);
+    void setTau(float tau);
+};
+
+//Template functions
+template<typename Filter>
+void MPUXX50::_set_computed_average_rpy(uint8_t num_samples, Filter& filter_data)
+{
+    double r = 0, p = 0, y = 0;
+    for (uint8_t i = 0; i < num_samples; ++i) {
+        filter_data =  _get_calculated_attitude<Filter>();
+        r += filter_data.roll;
+        p += filter_data.pitch;
+        y += filter_data.yaw;
+    }
+    filter_data.roll = r / num_samples;
+    filter_data.pitch = p / num_samples;
+    filter_data.yaw = y / num_samples;
+}

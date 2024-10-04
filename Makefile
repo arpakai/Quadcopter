@@ -68,10 +68,10 @@ Core/Modules/imu/Fusion/FusionOffset.c
 CXX_SOURCES = \
 Core/Src/main.cpp \
 Core/Src/QuadcopterManager.cpp \
-Core/Src/MPUXX50.cpp \
 Core/Drivers/EEPROM/Src/eeprom_manager.cpp \
-Core/Drivers/MPU/Src/wmpu.cpp \
-Core/Drivers/Motor/Src/mcm.cpp \
+Core/Drivers/IMU/Src/wmpu.cpp \
+Core/Drivers/IMU/MPU9250/MPUXX50.cpp \
+Core/Drivers/Motor/Src/motor_control_manager.cpp \
 Core/Drivers/Motor/Src/motor_pwm.cpp 
 
 
@@ -146,9 +146,11 @@ C_INCLUDES =  \
 -IMiddlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F \
 -IDrivers/CMSIS/Include \
 -ICore/Drivers/EEPROM/Inc \
--ICore/Drivers/MPU/Inc \
+-ICore/Drivers/IMU/Inc \
+-ICore/Drivers/IMU/MPU9250 \
 -ICore/Drivers/Motor/Inc \
--ICore/Modules/imu/Fusion
+-ICore/Modules/imu/Fusion \
+-ICore/glm
 
 CXX_INCLUDES = $(C_INCLUDES) \
 -I../../tools/gcc-arm-none-eabi/arm-none-eabi/include/c++/10.3.1
